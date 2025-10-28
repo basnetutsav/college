@@ -1,6 +1,7 @@
 requirements.txt
-streamlit
+panel
 pandas
 hvplot
 holoviews
 bokeh
+plotly
