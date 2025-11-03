@@ -4,10 +4,10 @@ hvplot
 holoviews
 bokeh
 plotly
-pandas
 numpy
 matplotlib
 seaborn
 nltk
 wordcloud
 scikit-learn
+streamlit
