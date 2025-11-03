@@ -154,5 +154,3 @@ if uploaded_file is not None:
     # -------------------------
     df.to_csv("netflix_nlp_streamlit.csv", index=False)
     st.success("✅ Enhanced NLP processing complete! Results saved to netflix_nlp_streamlit.csv")
-
-!pip install streamlit
