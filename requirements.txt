@@ -11,3 +11,4 @@ nltk
 wordcloud
 scikit-learn
 streamlit
+streamlit-plotly-events
