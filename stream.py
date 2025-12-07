@@ -20,7 +20,7 @@ pd.set_option("display.float_format", "{:,.2f}".format)
 sns.set_style("whitegrid")
 
 # ---------- LOAD DATA ----------
-FILE_PATH = r"C:\Users\basne\OneDrive\Desktop\Combined_Sales_2025.csv"
+FILE_PATH = "Combined_Sales_2025.csv"
 
 if not Path(FILE_PATH).exists():
     st.error(f"CSV file not found at {FILE_PATH}")
