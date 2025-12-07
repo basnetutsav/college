@@ -1,6 +1,10 @@
 #!/usr/bin/env python
 # coding: utf-8
 
+# ======================================================
+# Global Ammolite Sales Dashboard - Streamlit Full Version
+# ======================================================
+
 import pandas as pd
 import numpy as np
 import streamlit as st
@@ -8,6 +12,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly.express as px
 from pathlib import Path
+from streamlit_plotly_events import plotly_events
 
 pd.set_option("display.float_format", "{:,.2f}".format)
 sns.set_style("whitegrid")
@@ -36,13 +41,9 @@ if "Revenue" not in df.columns:
 if "Date" in df.columns:
     df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
 
-# ---------- STREAMLIT PAGE CONFIG ----------
+# ---------- STREAMLIT CONFIG ----------
 st.set_page_config(layout="wide", page_title="Global Ammolite Sales Dashboard")
 st.title("🌎 Global Ammolite Sales Dashboard")
-
-# ---------- SESSION STATE FOR COUNTRY SELECTION ----------
-if "selected_country" not in st.session_state:
-    st.session_state.selected_country = "All"
 
 # =====================
 # GLOBAL KPIs
@@ -51,155 +52,145 @@ total_rev = df["Revenue"].sum()
 avg_order = df["Revenue"].mean()
 countries_count = df["Country"].nunique() if "Country" in df.columns else "N/A"
 
-with st.expander("📊 Global KPIs", expanded=True):
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total Revenue", f"${total_rev:,.0f}")
-    col2.metric("Average Order Value", f"${avg_order:,.2f}")
-    col3.metric("Number of Countries", countries_count)
-    st.markdown("""
-        **Insight:** The global revenue reflects total sales across all regions. The average order value shows customer purchasing power.
-    """)
+col1, col2, col3 = st.columns(3)
+col1.metric("Total Revenue", f"${total_rev:,.0f}")
+col2.metric("Avg Order Value", f"${avg_order:,.2f}")
+col3.metric("Countries", countries_count)
 
 # =====================
-# WORLD MAP (interactive)
+# WORLD MAP - CLICKABLE
 # =====================
-if "Country" in df.columns:
-    st.markdown("## 🌍 Revenue by Country")
-    country_rev = df.groupby("Country")["Revenue"].sum().reset_index()
-    fig_map = px.choropleth(
-        country_rev,
-        locations="Country",
-        locationmode="country names",
-        color="Revenue",
-        hover_name="Country",
-        color_continuous_scale="YlOrRd",
-        title="Total Revenue by Country"
-    )
-    fig_map.update_layout(height=600)
+st.markdown("## 🌍 Click a Country on the Map for Detailed Dashboard")
 
-    # Capture click event
-    click = st.plotly_chart(fig_map, use_container_width=True)
+country_rev = df.groupby("Country")["Revenue"].sum().reset_index()
+fig_map = px.choropleth(
+    country_rev,
+    locations="Country",
+    locationmode="country names",
+    color="Revenue",
+    hover_name="Country",
+    color_continuous_scale="YlOrRd",
+    title="Total Revenue by Country"
+)
+fig_map.update_layout(height=600)
 
-    st.markdown("""
-        **Insight:** Darker countries represent higher revenue. Click a country to view its detailed dashboard.
-    """)
+# Capture click events
+clicked_points = plotly_events(fig_map, click_event=True, hover_event=False)
+if "selected_country" not in st.session_state:
+    st.session_state.selected_country = "All"
+
+if clicked_points:
+    st.session_state.selected_country = clicked_points[0]["location"]
+
+st.plotly_chart(fig_map, use_container_width=True)
 
 # =====================
-# COUNTRY SELECT BOX
+# COUNTRY SELECTION (Dropdown fallback)
 # =====================
 country_list = ["All"] + sorted(df["Country"].dropna().unique())
-selected_country = st.selectbox(
-    "Or select a country manually:",
-    country_list,
-    index=country_list.index(st.session_state.selected_country)
-)
+selected_country = st.selectbox("Or select a Country", country_list, index=country_list.index(st.session_state.selected_country))
 
-# Update session_state if user clicks map
-# NOTE: Streamlit does not directly capture Plotly click events in Python; we simulate it using a workaround with `st.plotly_chart` and `st.experimental_get_query_params` or by manually updating via dropdown
-st.session_state.selected_country = selected_country
-
-# --------------------
-# If a specific country is selected
-# --------------------
+# =====================
+# FILTER DATA
+# =====================
 if selected_country != "All":
-    country_df = df[df["Country"] == selected_country]
-    st.markdown(f"## 📊 Dashboard for {selected_country}")
+    df_filtered = df[df["Country"] == selected_country]
+else:
+    df_filtered = df.copy()
 
-    # KPIs
-    total_rev_c = country_df["Revenue"].sum()
-    avg_order_c = country_df["Revenue"].mean()
-    channels_count_c = country_df["Channel"].nunique() if "Channel" in country_df.columns else "N/A"
+# =====================
+# EXPANDERS FOR GRAPHS
+# =====================
+# Revenue by Country (global)
+with st.expander("📊 Revenue by Country"):
+    if selected_country == "All":
+        rev_country = df_filtered.groupby("Country")["Revenue"].sum().sort_values(ascending=False)
+        fig, ax = plt.subplots(figsize=(12,6))
+        rev_country.plot(kind="bar", ax=ax, color="teal")
+        ax.set_ylabel("Revenue (CAD)")
+        ax.set_xlabel("")
+        plt.xticks(rotation=45, ha="right")
+        plt.tight_layout()
+        st.pyplot(fig)
+        st.markdown("""
+        **Insights:**  
+        North America (Canada & USA) dominates revenue, indicating strong core markets.  
+        Asia has emerging potential in online and wholesale channels.  
+        Europe and smaller markets show moderate performance.  
 
-    with st.expander("Key KPIs", expanded=True):
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Total Revenue", f"${total_rev_c:,.0f}")
-        c2.metric("Average Order Value", f"${avg_order_c:,.2f}")
-        c3.metric("Number of Channels", channels_count_c)
-        st.markdown(f"""
-            **Insight:** Total revenue for {selected_country} shows market size. Average order value reflects customer spending patterns.
+        **Recommendations:**  
+        - Strengthen top-performing countries through marketing & loyalty programs.  
+        - Explore expansion strategies for moderate markets.  
+        - Investigate low-performing regions for untapped opportunities.
         """)
 
-    # Revenue by Channel
-    if "Channel" in country_df.columns:
-        with st.expander("Revenue by Channel", expanded=False):
-            rev_channel = country_df.groupby("Channel")["Revenue"].sum().sort_values(ascending=False)
-            st.bar_chart(rev_channel)
-            st.markdown(f"**Insight:** Identifies best-performing channels in {selected_country}.")
+# Revenue by Channel (heatmap)
+with st.expander("📈 Revenue by Country × Channel Heatmap"):
+    if "Channel" in df_filtered.columns and "Country" in df_filtered.columns:
+        pivot = pd.pivot_table(df_filtered, values="Revenue", index="Country", columns="Channel", aggfunc="sum", fill_value=0)
+        fig, ax = plt.subplots(figsize=(12,6))
+        sns.heatmap(pivot, cmap="YlOrRd", linewidths=0.5, ax=ax)
+        ax.set_ylabel("Country")
+        ax.set_xlabel("Channel")
+        plt.tight_layout()
+        st.pyplot(fig)
+        st.markdown("""
+        **Insights:**  
+        Asia shows strong revenue in Online and Wholesale channels.  
+        North America has balanced performance across channels.  
+        Galleries and stores perform better in Europe.  
 
-    # Revenue over Time
-    if "Date" in country_df.columns:
-        with st.expander("Revenue Over Time", expanded=False):
-            rev_time = country_df.groupby("Date")["Revenue"].sum().reset_index()
-            fig_time = px.line(rev_time, x="Date", y="Revenue", title=f"Revenue Over Time - {selected_country}")
-            st.plotly_chart(fig_time, use_container_width=True)
-            st.markdown(f"**Insight:** Reveals seasonality, peaks, and low periods in {selected_country} sales.")
+        **Recommendations:**  
+        - Align marketing and sales strategy with channel preferences per region.  
+        - Optimize e-commerce for high-online-revenue countries.  
+        - Consider physical stores in regions with high in-person sales.
+        """)
 
-    # Product / SKU analysis
-    prod_col = "Product Type" if "Product Type" in country_df.columns else ("Product" if "Product" in country_df.columns else None)
+# Revenue Over Time
+with st.expander("📅 Revenue Over Time"):
+    if "Date" in df_filtered.columns:
+        rev_time = df_filtered.groupby("Date")["Revenue"].sum().reset_index()
+        fig_time = px.line(rev_time, x="Date", y="Revenue", title=f"Revenue Over Time - {selected_country}", markers=True)
+        st.plotly_chart(fig_time, use_container_width=True)
+        st.markdown("""
+        **Insights:**  
+        Seasonal trends may exist, showing spikes during holidays or key events.  
+        Consistent growth indicates a stable market.  
+        Any sudden drops may reveal operational or market challenges.  
+
+        **Recommendations:**  
+        - Plan inventory and marketing campaigns around peak periods.  
+        - Investigate dips for process improvements.  
+        - Monitor long-term growth trends for strategic decisions.
+        """)
+
+# Product / SKU Analysis
+with st.expander("🛍️ Revenue by Product / SKU"):
+    prod_col = "Product Type" if "Product Type" in df_filtered.columns else ("Product" if "Product" in df_filtered.columns else None)
     if prod_col:
-        with st.expander(f"Revenue by {prod_col}", expanded=False):
-            rev_prod = country_df.groupby(prod_col)["Revenue"].sum().sort_values(ascending=False)
-            st.bar_chart(rev_prod)
-            st.markdown(f"**Insight:** Highlights top-selling products in {selected_country}.")
+        rev_prod = df_filtered.groupby(prod_col)["Revenue"].sum().sort_values(ascending=False)
+        st.bar_chart(rev_prod)
+        st.markdown(f"""
+        **Insights:**  
+        Top-selling products drive the majority of revenue.  
+        Identifying best-performing SKUs can guide production and marketing.  
 
-# --------------------
-# Global Analysis (All countries)
-# --------------------
-if selected_country == "All":
-    st.markdown("## 🌐 Global Revenue Analysis")
-
-    # Revenue by Country (bar chart)
-    if "Country" in df.columns:
-        with st.expander("Revenue by Country (Bar Chart)", expanded=False):
-            rev_country = df.groupby("Country")["Revenue"].sum().sort_values(ascending=False)
-            fig, ax = plt.subplots(figsize=(10,5))
-            rev_country.plot(kind="bar", ax=ax)
-            ax.set_ylabel("Revenue (CAD)")
-            ax.set_xlabel("")
-            plt.xticks(rotation=45, ha="right")
-            plt.tight_layout()
-            st.pyplot(fig)
-            st.markdown("**Insight:** Shows top-performing countries globally.")
-
-    # Country x Channel Heatmap
-    if "Country" in df.columns and "Channel" in df.columns:
-        with st.expander("Country × Channel Heatmap", expanded=False):
-            pivot = pd.pivot_table(df, values="Revenue", index="Country", columns="Channel", aggfunc="sum", fill_value=0)
-            fig, ax = plt.subplots(figsize=(12,6))
-            sns.heatmap(pivot, cmap="YlOrRd", linewidths=0.5, ax=ax)
-            ax.set_ylabel("Revenue")
-            ax.set_xlabel("Channel")
-            plt.tight_layout()
-            st.pyplot(fig)
-            st.markdown("**Insight:** Shows channel preferences by country.")
-
-    # Revenue over Time
-    if "Date" in df.columns:
-        with st.expander("Revenue Over Time", expanded=False):
-            ts = df.groupby("Date")["Revenue"].sum().reset_index()
-            fig_time = px.line(ts, x="Date", y="Revenue", title="Revenue Over Time")
-            st.plotly_chart(fig_time, use_container_width=True)
-            st.markdown("**Insight:** Reveals global trends and seasonality.")
-
-    # Product / SKU analysis
-    prod_col = "Product Type" if "Product Type" in df.columns else ("Product" if "Product" in df.columns else None)
-    if prod_col:
-        with st.expander(f"Revenue by {prod_col}", expanded=False):
-            rev_prod = df.groupby(prod_col)["Revenue"].sum().sort_values(ascending=False)
-            st.bar_chart(rev_prod)
-            st.markdown("**Insight:** Shows top-selling products globally.")
+        **Recommendations:**  
+        - Focus on high-revenue products for promotions.  
+        - Analyze low-performing SKUs for potential discontinuation.  
+        - Adjust inventory based on SKU performance.
+        """)
 
 # =====================
 # EXECUTIVE INSIGHTS
 # =====================
-with st.expander("📝 Executive Insights & Recommendations", expanded=True):
+with st.expander("💡 Executive Insights & Recommendations"):
     st.markdown("""
-    - **Top-performing markets:** North America (Canada, USA)  
+    - **Top-performing markets:** North America (Canada & USA)  
     - **Channels performing well in Asia:** Online & Wholesale  
     - **Recommendations:**  
-        - Protect top markets to maintain revenue stability  
-        - Focus marketing and sales on Online/Wholesale channels in high-performing regions  
-        - Identify underperforming regions using heatmaps to explore expansion opportunities  
-        - Use time trends to plan inventory, promotions, and forecast sales  
-        - Prioritize high-demand products and evaluate strategies for low-performing items
+        - Protect top markets through loyalty & marketing campaigns  
+        - Optimize channel strategy regionally  
+        - Use heatmaps and trends to identify expansion opportunities  
+        - Track seasonal patterns for planning & inventory
     """)
