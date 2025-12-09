@@ -54,7 +54,7 @@ st.caption("World map • Geography × Channels • Time trends + shipping lag �
 # Paths & schema
 # --------------------------------------------------
 BASE = pathlib.Path(__file__).parent
-DATA_FILE = BASE / "Combined_Sales_2025 (2).csv"
+DATA_FILE = BASE / "Combined_Sales_2025.csv"
 
 ESSENTIAL = [
     "Sale ID",
