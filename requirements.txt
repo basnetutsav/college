@@ -12,3 +12,6 @@ wordcloud
 scikit-learn
 streamlit
 streamlit-plotly-events
+scipy
+prophet
+chardet
