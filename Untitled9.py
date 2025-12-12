@@ -45,11 +45,17 @@ st.markdown(
     }
 
     /* App background + default text */
-    html, body, [class*="css"] {
+    html, body, [class*="css"], .stApp {
       font-size: 0.95rem !important;
       background: var(--bg) !important;
       color: var(--text) !important;
       font-family: SpaceGrotesk, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif !important;
+    }
+
+    /* FORCE readable text everywhere (fixes faint/washed-out text) */
+    .stApp, .stApp p, .stApp span, .stApp label, .stApp div, .stApp a, .stApp li, .stApp small {
+      color: var(--text) !important;
+      opacity: 1 !important;
     }
 
     .block-container {
@@ -70,6 +76,7 @@ st.markdown(
     }
     section[data-testid="stSidebar"] * {
       color: var(--text) !important;
+      opacity: 1 !important;
     }
 
     /* Metric cards (keep your sizing) */
@@ -79,19 +86,36 @@ st.markdown(
       background: var(--bg) !important;
       border: 1px solid var(--border) !important;
     }
+    /* Metric label/value/delta -> BLACK + full opacity (fixes invisible KPIs) */
+    [data-testid="metric-container"] [data-testid="stMetricLabel"],
+    [data-testid="metric-container"] [data-testid="stMetricLabel"] * ,
+    [data-testid="metric-container"] [data-testid="stMetricValue"],
+    [data-testid="metric-container"] [data-testid="stMetricValue"] * ,
+    [data-testid="metric-container"] [data-testid="stMetricDelta"],
+    [data-testid="metric-container"] [data-testid="stMetricDelta"] * {
+      color: #000000 !important;
+      opacity: 1 !important;
+    }
     [data-testid="metric-container"] [data-testid="stMetricValue"] {
       font-size: 1.55rem !important;
       overflow: visible !important;
       text-overflow: clip !important;
       white-space: normal !important;
       line-height: 1.2 !important;
-      color: var(--text) !important;
+    }
+
+    /* Captions (Filtered view...) */
+    [data-testid="stCaptionContainer"],
+    [data-testid="stCaptionContainer"] * {
+      color: #000000 !important;
+      opacity: 1 !important;
     }
 
     /* Tabs */
     .stTabs [data-baseweb="tab"] {
       font-size: 0.95rem;
       color: var(--text) !important;
+      opacity: 1 !important;
     }
 
     /* Headings */
@@ -99,11 +123,11 @@ st.markdown(
     .stMarkdown h1,.stMarkdown h2,.stMarkdown h3,.stMarkdown h4 {
       color: var(--text) !important;
       font-family: SpaceGroteskHeader, SpaceGrotesk, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif !important;
+      opacity: 1 !important;
     }
 
     /* -----------------------------
        ✅ INPUTS: WHITE BACKGROUND + BLACK TEXT (everywhere)
-       (selectbox / multiselect / text input / textarea / date input / number input)
     ------------------------------ */
 
     /* Input shells */
@@ -114,11 +138,15 @@ st.markdown(
       color: #000000 !important;
       border: 1px solid var(--border) !important;
       border-radius: 10px !important;
+      opacity: 1 !important;
     }
 
-    /* Text inside selects */
-    div[data-baseweb="select"] span {
+    /* Select internal input + text */
+    div[data-baseweb="select"] input,
+    div[data-baseweb="select"] span,
+    div[data-baseweb="select"] div {
       color: #000000 !important;
+      opacity: 1 !important;
     }
 
     /* Dropdown popovers (opened menu) */
@@ -127,51 +155,74 @@ st.markdown(
     li[role="option"] {
       background: #FFFFFF !important;
       color: #000000 !important;
+      opacity: 1 !important;
     }
-
-    li[role="option"]:hover {
-      background: var(--soft) !important;
-    }
+    li[role="option"]:hover { background: var(--soft) !important; }
 
     /* Multiselect tags */
     .stMultiSelect span[data-baseweb="tag"] {
       background: var(--soft) !important;
       color: #000000 !important;
       border: 1px solid var(--border) !important;
+      opacity: 1 !important;
     }
-    .stMultiSelect span[data-baseweb="tag"] svg {
-      fill: #000000 !important;
-    }
+    .stMultiSelect span[data-baseweb="tag"] svg { fill: #000000 !important; }
 
-    /* Date / Number inputs sometimes use these wrappers */
+    /* Date / Number inputs */
     div[data-testid="stDateInput"] input,
     div[data-testid="stNumberInput"] input {
       background: #FFFFFF !important;
       color: #000000 !important;
       border: 1px solid var(--border) !important;
       border-radius: 10px !important;
+      opacity: 1 !important;
     }
 
-    /* Sliders: make text readable */
-    .stSlider * { color: var(--text) !important; }
+    /* Radio / Checkbox / Toggle / Slider text */
+    .stRadio *, .stCheckbox *, .stToggle *, .stSlider * {
+      color: #000000 !important;
+      opacity: 1 !important;
+    }
 
-    /* Buttons: keep readable on white */
-    .stButton > button {
+    /* Buttons (including file uploader button) */
+    .stButton > button,
+    button[data-testid^="stBaseButton"],
+    button[kind] {
       background: #FFFFFF !important;
       color: #000000 !important;
       border: 1px solid #000000 !important;
       border-radius: 10px !important;
+      opacity: 1 !important;
     }
-    .stButton > button:hover { background: var(--soft) !important; }
-    .stButton > button * { color: #000000 !important; }
+    .stButton > button:hover,
+    button[data-testid^="stBaseButton"]:hover,
+    button[kind]:hover { background: var(--soft) !important; }
+    .stButton > button * ,
+    button[data-testid^="stBaseButton"] * ,
+    button[kind] * { color: #000000 !important; opacity: 1 !important; }
+
+    /* File uploader dropzone */
+    div[data-testid="stFileUploaderDropzone"] {
+      background: #FFFFFF !important;
+      border: 1px dashed var(--border) !important;
+    }
+    div[data-testid="stFileUploaderDropzone"] * {
+      color: #000000 !important;
+      opacity: 1 !important;
+    }
 
     /* Dataframes background */
     .stDataFrame, .stTable { background: #FFFFFF !important; }
+
+    /* ✅ Highlight/Selection: keep text BLACK */
+    ::selection { background: #E6E6E6 !important; color: #000000 !important; }
+    ::-moz-selection { background: #E6E6E6 !important; color: #000000 !important; }
+    input::selection, textarea::selection { background: #E6E6E6 !important; color: #000000 !important; }
+
     </style>
     """,
     unsafe_allow_html=True,
 )
-
 
 # -----------------------------
 # Helper: Deduplicate columns
@@ -200,7 +251,7 @@ def to_num(df: pd.DataFrame, col: str):
 
 
 def style_fig(fig, height=430):
-    # ✅ White chart background + black text (and no hovertemplate crash)
+    # ✅ White chart background + black text + FIXED hoverlabel (no ValueError)
     fig.update_layout(
         height=height,
         margin=dict(l=10, r=10, t=55, b=40),
@@ -213,7 +264,10 @@ def style_fig(fig, height=430):
             yanchor="bottom", y=1.02,
             xanchor="left", x=0,
         ),
-        hoverlabel=dict(font_size=11, font_family="SpaceGrotesk"),
+        hoverlabel=dict(
+            font=dict(size=11, family="SpaceGrotesk", color="#000000"),
+            bgcolor="#FFFFFF",
+        ),
         xaxis=dict(
             title_font=dict(size=13, family="SpaceGrotesk", color="#000000"),
             tickfont=dict(size=11, family="SpaceGrotesk", color="#000000"),
@@ -597,7 +651,6 @@ st.caption(
 )
 st.markdown("---")
 
-
 # -----------------------------
 # MAIN TOPIC TABS
 # -----------------------------
@@ -739,7 +792,6 @@ with tab_overview:
         bullets.append(f"- Average time to ship is **{cur_avg_ship:.1f} days** (use *Inventory Timing* to see channel differences).")
     bullets.append("- Use *Price Drivers* to see which attributes push price up/down, and *Compliance* to spot risk gaps.")
     st.markdown("\n".join(bullets))
-
 
 # -----------------------------
 # TAB: Price Drivers (more advanced)
