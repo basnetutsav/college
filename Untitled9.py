@@ -1,23 +1,39 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[ ]:
-
-
 import streamlit as st
+import pathlib
 
-# Global page configuration for the combined app
 st.set_page_config(page_title="Dinosty 2025 • Full Analytics Suite", layout="wide")
+
+BASE_DIR = pathlib.Path(__file__).parent
+
+# Try to find one of several possible dataset filenames
+CSV_CANDIDATES = [
+    "Combined_Sales_2025.csv",
+    "Combined_Sales_2025 (2).csv",
+    "Combined_Sales_2025-2.csv",
+]
+DATA_FILE = None
+for name in CSV_CANDIDATES:
+    p = BASE_DIR / name
+    if p.exists():
+        DATA_FILE = p
+        break
+
+if DATA_FILE is None:
+    st.error(
+        "Dataset file not found. Put one of these in the same folder as this app: "
+        + ", ".join(CSV_CANDIDATES)
+    )
+    st.stop()
 
 st.sidebar.title("Dinosty 2025 Analytics Suite")
 page = st.sidebar.radio(
     "Select a dashboard",
-    (
+    [
         "Customer Segmentation",
         "Geography & Channels",
         "Price Drivers & Correlations",
-        "Dinosty 2025 Overall Sales"
-    )
+        "Overall Sales EDA",
+    ],
 )
 
 if page == "Customer Segmentation":
@@ -29,8 +45,6 @@ if page == "Customer Segmentation":
     from sklearn.linear_model import LinearRegression
     from sklearn.preprocessing import StandardScaler
 
-    # st.set_page_config(page_title="Customer Segmentation Dashboard", layout="wide")  # (disabled here; config set at top of combined app)
-
     st.markdown(
         """
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"> 
@@ -41,31 +55,25 @@ if page == "Customer Segmentation":
         """,
         unsafe_allow_html=True
     )
-    df = pd.read_csv(r'C:\Users\jasph\Downloads\Combined_Sales_2025.csv')
+
+    df = pd.read_csv(DATA_FILE)
     df['Customer Type'] = df['Customer Type'].fillna('Buyer (Jewelry)').replace('', 'Buyer (Jewelry)')
     df['Date'] = pd.to_datetime(df['Date'])
     df['Grade'] = df['Grade'].fillna('Unknown').astype(str)
     df['True Spend'] = df['Price (CAD)'] - df['Discount (CAD)'] + df['Shipping (CAD)'] + df['Taxes Collected (CAD)']
 
-    # --- SIDEBAR ---
+    # Sidebar Filters
     st.sidebar.title("Filters")
-    # Country filter
     countries = sorted(df['Country'].dropna().unique())
     selected_country = st.sidebar.multiselect("Select Country", countries, default=[])
-    # Customer Type filter
     customer_types = sorted(df['Customer Type'].dropna().unique())
     selected_type = st.sidebar.multiselect("Select Customer Type", customer_types, default=[])
-
-    # Grade filter
     grades = sorted(df['Grade'].dropna().unique())
     selected_grade = st.sidebar.multiselect("Select Grade", grades, default=[])
-
-    # Month filter
     df['YearMonth'] = df['Date'].dt.to_period('M').astype(str)
     months = sorted(df['YearMonth'].dropna().unique())
     selected_month = st.sidebar.multiselect("Select Month (YYYY-MM)", months, default=[])
 
-    # Filter dataset based on selections
     filtered_df = df.copy()
     if selected_country:
         filtered_df = filtered_df[filtered_df['Country'].isin(selected_country)]
@@ -76,113 +84,241 @@ if page == "Customer Segmentation":
     if selected_month:
         filtered_df = filtered_df[filtered_df['YearMonth'].isin(selected_month)]
 
-    # --- DASHBOARD TITLE ---
-    st.title("Customer Segmentation Dashboard")
+    st.markdown("<h1 style='color:#3399ff;'>Customer Segmentation Dashboard</h1>", unsafe_allow_html=True)
 
-    # --- TOP METRICS ---
     total_revenue = filtered_df['True Spend'].sum()
     total_orders = filtered_df.shape[0]
     avg_order_value = filtered_df['True Spend'].mean() if total_orders > 0 else 0
     unique_customers = filtered_df['Customer Type'].nunique()
+    repeat_rate = filtered_df.groupby('Customer Type')['Sale ID'].nunique().mean() if 'Sale ID' in filtered_df.columns else 0
 
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Total Revenue", f"${total_revenue:,.2f}")
-    col2.metric("Total Orders", total_orders)
-    col3.metric("Avg Order Value", f"${avg_order_value:,.2f}")
-    col4.metric("Unique Customer Types", unique_customers)
+    top_row = st.columns(4)
+    with top_row[0]:
+        st.metric("Total Revenue", f"${total_revenue:,.2f}")
+    with top_row[1]:
+        st.metric("Total Orders", total_orders)
+    with top_row[2]:
+        st.metric("Avg Order Value", f"${avg_order_value:,.2f}")
+    with top_row[3]:
+        st.metric("Unique Customer Types", unique_customers)
 
-    # --- VISUALIZATIONS ---
+    if 'Sale ID' in filtered_df.columns:
+        customer_order_counts = filtered_df.groupby('Customer Type')['Sale ID'].nunique().reset_index()
+        repeat_customers = customer_order_counts[customer_order_counts['Sale ID'] > 1].shape[0]
+        total_customers = customer_order_counts.shape[0]
+        repeat_rate = repeat_customers / total_customers if total_customers > 0 else 0
+    else:
+        repeat_rate = 0
 
-    # 1. Revenue by Customer Type
-    st.subheader("Revenue by Customer Type")
-    revenue_by_customer = filtered_df.groupby('Customer Type')['True Spend'].sum().reset_index()
-    fig1 = px.bar(
-        revenue_by_customer,
-        x='Customer Type',
-        y='True Spend',
-        title='Total Revenue by Customer Type',
-        labels={'True Spend': 'Revenue (CAD)'},
-        text_auto='.2s'
-    )
-    fig1.update_layout(xaxis_tickangle=-45)
-    st.plotly_chart(fig1, use_container_width=True)
+    st.markdown(f"<h3 style='color:#ffcc00;'>Repeat Purchase Rate: {repeat_rate:.2%}</h3>", unsafe_allow_html=True)
 
-    # 2. Monthly Revenue Trend
-    st.subheader("Monthly Revenue Trend")
-    monthly_revenue = filtered_df.groupby('YearMonth')['True Spend'].sum().reset_index()
-    fig2 = px.line(
+    chart_row = st.columns(2)
+    with chart_row[0]:
+        revenue_by_customer_type = filtered_df.groupby('Customer Type')['True Spend'].sum().reset_index()
+        revenue_by_customer_type = revenue_by_customer_type.sort_values(by='True Spend', ascending=False)
+        fig1 = px.bar(
+            revenue_by_customer_type,
+            x='Customer Type',
+            y='True Spend',
+            title='Revenue by Customer Type',
+            labels={'True Spend': 'Total Revenue (CAD)'},
+            color='True Spend',
+            color_continuous_scale='Blues',
+            text_auto='.2s'
+        )
+        fig1.update_layout(xaxis_tickangle=-45)
+        st.plotly_chart(fig1, use_container_width=True)
+
+    with chart_row[1]:
+        avg_spend_by_customer_type = filtered_df.groupby('Customer Type')['True Spend'].mean().reset_index()
+        avg_spend_by_customer_type = avg_spend_by_customer_type.sort_values(by='True Spend', ascending=False)
+        fig2 = px.bar(
+            avg_spend_by_customer_type,
+            x='Customer Type',
+            y='True Spend',
+            title='Average Order Value by Customer Type',
+            labels={'True Spend': 'Average Order Value (CAD)'},
+            color='True Spend',
+            color_continuous_scale='Viridis',
+            text_auto='.2s'
+        )
+        fig2.update_layout(xaxis_tickangle=-45)
+        st.plotly_chart(fig2, use_container_width=True)
+
+    st.markdown("---")
+    st.subheader("Monthly Revenue Trends by Customer Type")
+    filtered_df['YearMonth'] = filtered_df['Date'].dt.to_period('M').astype(str)
+    monthly_revenue = filtered_df.groupby(['YearMonth', 'Customer Type'])['True Spend'].sum().reset_index()
+    fig3 = px.line(
         monthly_revenue,
         x='YearMonth',
         y='True Spend',
+        color='Customer Type',
         markers=True,
-        title='Monthly Revenue Trend'
+        title='Monthly Revenue by Customer Type',
+        labels={'True Spend': 'Revenue (CAD)', 'YearMonth': 'Month'}
     )
-    fig2.update_layout(xaxis_title='Month', yaxis_title='Revenue (CAD)')
-    st.plotly_chart(fig2, use_container_width=True)
-
-    # 3. Customer Segmentation by Grade and Customer Type
-    st.subheader("Customer Segmentation by Grade & Customer Type")
-    segmentation = filtered_df.groupby(['Customer Type', 'Grade'])['True Spend'].sum().reset_index()
-    fig3 = px.treemap(
-        segmentation,
-        path=['Customer Type', 'Grade'],
-        values='True Spend',
-        title='Revenue Distribution by Customer Type and Grade'
-    )
+    fig3.update_layout(xaxis_tickangle=-45)
     st.plotly_chart(fig3, use_container_width=True)
 
-    # 4. Time Series Forecasting (Prophet)
-    st.subheader("Revenue Forecasting (Prophet Model)")
-    time_series = filtered_df.groupby('Date')['True Spend'].sum().reset_index()
-    time_series = time_series.rename(columns={'Date': 'ds', 'True Spend': 'y'})
+    st.markdown("---")
+    st.subheader("Customer Lifetime Value (CLV) Estimation")
+    if 'Sale ID' in filtered_df.columns:
+        key_customer_data = filtered_df.groupby('Customer Type').agg(
+            Total_Revenue=('True Spend', 'sum'),
+            Order_Count=('Sale ID', 'nunique')
+        ).reset_index()
+        key_customer_data['Avg_Order_Value'] = key_customer_data['Total_Revenue'] / key_customer_data['Order_Count']
+        avg_repeat_rate = repeat_rate if repeat_rate > 0 else 0.2
+        key_customer_data['Estimated_CLV'] = key_customer_data['Avg_Order_Value'] * (1 / (1 - avg_repeat_rate))
 
-    if len(time_series) > 2:
-        model = Prophet()
-        model.fit(time_series)
-
-        future = model.make_future_dataframe(periods=30)
-        forecast = model.predict(future)
-
-        fig4 = go.Figure()
-        fig4.add_trace(go.Scatter(x=time_series['ds'], y=time_series['y'], mode='lines', name='Historical'))
-        fig4.add_trace(go.Scatter(x=forecast['ds'], y=forecast['yhat'], mode='lines', name='Forecast'))
-        fig4.update_layout(title="30-Day Revenue Forecast", xaxis_title="Date", yaxis_title="Revenue (CAD)")
+        fig4 = px.bar(
+            key_customer_data,
+            x='Customer Type',
+            y='Estimated_CLV',
+            title='Estimated Customer Lifetime Value by Customer Type',
+            labels={'Estimated_CLV': 'Estimated CLV (CAD)'},
+            color='Estimated_CLV',
+            color_continuous_scale='Plasma',
+            text_auto='.2s'
+        )
+        fig4.update_layout(xaxis_tickangle=-45)
         st.plotly_chart(fig4, use_container_width=True)
     else:
-        st.info("Not enough data points for forecasting.")
+        st.info("Sale ID column is missing, cannot calculate CLV.")
 
-    # 5. Predictive Modeling: Simple Linear Regression
-    st.subheader("Predictive Insights: AOV vs. Number of Orders (Dummy Example)")
-    # Creating a dummy example as the dataset might not have customer-level order count directly.
-    customer_revenue = filtered_df.groupby('Customer Type')['True Spend'].sum().reset_index()
-    customer_revenue['Order_Count'] = filtered_df.groupby('Customer Type')['True Spend'].count().values
-    customer_revenue['AOV'] = customer_revenue['True Spend'] / customer_revenue['Order_Count']
-
-    # Preparing data for regression
-    X = customer_revenue[['Order_Count']]
-    y = customer_revenue['AOV']
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
-    reg_model = LinearRegression()
-    reg_model.fit(X_scaled, y)
-
-    customer_revenue['Predicted_AOV'] = reg_model.predict(X_scaled)
-
-    fig5 = px.scatter(
-        customer_revenue,
-        x='Order_Count',
-        y='AOV',
-        trendline='ols',
-        title='Order Count vs. Average Order Value'
+    st.markdown("---")
+    st.subheader("Customer Segmentation by Grade and Type")
+    grade_segment = filtered_df.groupby(['Customer Type', 'Grade'])['True Spend'].sum().reset_index()
+    fig5 = px.treemap(
+        grade_segment,
+        path=['Customer Type', 'Grade'],
+        values='True Spend',
+        color='True Spend',
+        color_continuous_scale='RdBu',
+        title="Revenue Distribution by Customer Type & Grade"
     )
     st.plotly_chart(fig5, use_container_width=True)
 
-    st.write("**Note:** This is a simplified example of predictive modeling using aggregate data.")
+    st.markdown("---")
+    st.subheader("Customer Revenue Concentration (Pareto 80/20)")
+    revenue_by_customer = filtered_df.groupby('Customer Type')['True Spend'].sum().reset_index()
+    revenue_by_customer = revenue_by_customer.sort_values(by='True Spend', ascending=False)
+    revenue_by_customer['Cumulative_Revenue'] = revenue_by_customer['True Spend'].cumsum()
+    total_revenue = revenue_by_customer['True Spend'].sum()
+    revenue_by_customer['Revenue_Share'] = revenue_by_customer['True Spend'] / total_revenue
+    revenue_by_customer['Cumulative_Share'] = revenue_by_customer['Revenue_Share'].cumsum()
+    revenue_by_customer['Customer_Rank'] = range(1, len(revenue_by_customer) + 1)
+    revenue_by_customer['Customer_Percentile'] = revenue_by_customer['Customer_Rank'] / len(revenue_by_customer)
 
-    # --- RAW DATA TABLE ---
-    st.subheader("Filtered Data Preview")
-    st.dataframe(filtered_df.head(100))
+    fig6 = px.line(
+        revenue_by_customer,
+        x='Customer_Percentile',
+        y='Cumulative_Share',
+        title='Customer Revenue Concentration (Pareto Curve)',
+        labels={'Customer_Percentile': 'Customer Percentile', 'Cumulative_Share': 'Cumulative Revenue Share'}
+    )
+    fig6.add_hline(y=0.8, line_dash="dash", line_color="red")
+    fig6.add_vline(x=0.2, line_dash="dash", line_color="red")
+    st.plotly_chart(fig6, use_container_width=True)
 
+    st.markdown("---")
+    st.subheader("Time-Series Revenue Forecast (Prophet Model)")
+    time_series = filtered_df.groupby('Date')['True Spend'].sum().reset_index()
+    time_series = time_series.rename(columns={'Date': 'ds', 'True Spend': 'y'})
+
+    if len(time_series) > 5:
+        model = Prophet(yearly_seasonality=True, weekly_seasonality=False, daily_seasonality=False)
+        model.fit(time_series)
+        future = model.make_future_dataframe(periods=30, freq='D')
+        forecast = model.predict(future)
+
+        forecast_fig = go.Figure()
+        forecast_fig.add_trace(go.Scatter(x=time_series['ds'], y=time_series['y'], mode='lines', name='Historical'))
+        forecast_fig.add_trace(go.Scatter(x=forecast['ds'], y=forecast['yhat'], mode='lines', name='Forecast'))
+        forecast_fig.update_layout(title="30-Day Revenue Forecast", xaxis_title="Date", yaxis_title="Revenue (CAD)")
+        st.plotly_chart(forecast_fig, use_container_width=True)
+    else:
+        st.info("Not enough data for forecasting.")
+
+    st.markdown("---")
+    st.subheader("Predictive Modeling: Order Count vs. Average Order Value")
+    if 'Sale ID' in filtered_df.columns:
+        cust_metrics = filtered_df.groupby('Customer Type').agg(
+            Order_Count=('Sale ID', 'nunique'),
+            Total_Spend=('True Spend', 'sum')
+        ).reset_index()
+        cust_metrics['Avg_Order_Value'] = cust_metrics['Total_Spend'] / cust_metrics['Order_Count']
+
+        X = cust_metrics[['Order_Count']]
+        y = cust_metrics['Avg_Order_Value']
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+        reg_model = LinearRegression()
+        reg_model.fit(X_scaled, y)
+        cust_metrics['Predicted_AOV'] = reg_model.predict(X_scaled)
+
+        reg_fig = px.scatter(
+            cust_metrics,
+            x='Order_Count',
+            y='Avg_Order_Value',
+            trendline='ols',
+            title='Order Count vs Average Order Value by Customer Type',
+            labels={'Order_Count': 'Order Count', 'Avg_Order_Value': 'Average Order Value (CAD)'}
+        )
+        st.plotly_chart(reg_fig, use_container_width=True)
+    else:
+        st.info("Sale ID column missing – cannot build regression model.")
+
+    st.markdown("---")
+    st.subheader("Customer Heatmap: Country vs. Customer Type")
+    heatmap_data = filtered_df.pivot_table(
+        index='Country',
+        columns='Customer Type',
+        values='True Spend',
+        aggfunc='sum',
+        fill_value=0
+    )
+    heatmap_fig = px.imshow(
+        heatmap_data,
+        labels=dict(x="Customer Type", y="Country", color="Revenue (CAD)"),
+        x=heatmap_data.columns,
+        y=heatmap_data.index,
+        aspect='auto',
+        color_continuous_scale='Blues',
+        title='Revenue Heatmap: Country vs Customer Type'
+    )
+    st.plotly_chart(heatmap_fig, use_container_width=True)
+
+    st.markdown("---")
+    st.subheader("Cumulative Revenue Over Time")
+    time_df = filtered_df.groupby('Date')['True Spend'].sum().reset_index()
+    time_df = time_df.sort_values(by='Date')
+    time_df['Cumulative_Revenue'] = time_df['True Spend'].cumsum()
+    cum_fig = px.area(
+        time_df,
+        x='Date',
+        y='Cumulative_Revenue',
+        title='Cumulative Revenue Over Time',
+        labels={'Cumulative_Revenue': 'Cumulative Revenue (CAD)', 'Date': 'Date'}
+    )
+    st.plotly_chart(cum_fig, use_container_width=True)
+
+    st.markdown("---")
+    st.subheader("Customer Type Breakdown Summary")
+    cust_summary = filtered_df.groupby('Customer Type').agg(
+        Total_Revenue=('True Spend', 'sum'),
+        Order_Count=('Sale ID', 'nunique') if 'Sale ID' in filtered_df.columns else ('True Spend', 'count'),
+        Average_Order_Value=('True Spend', 'mean')
+    ).reset_index()
+    st.dataframe(cust_summary.style.format({
+        'Total_Revenue': '{:,.2f}',
+        'Average_Order_Value': '{:,.2f}'
+    }), use_container_width=True)
+
+    st.markdown("---")
+    st.subheader("Raw Filtered Data Preview")
+    st.dataframe(filtered_df.head(200), use_container_width=True)
 
 elif page == "Geography & Channels":
     import pathlib
@@ -193,10 +329,6 @@ elif page == "Geography & Channels":
     import plotly.graph_objects as go
     import plotly.io as pio
     from scipy import stats
-
-    # Page config & global styles...............................
-
-    # st.set_page_config(page_title="Week 10 • Geography & Channels", layout="wide")  # (disabled here; config set at top of combined app)
 
     st.markdown("""
     <style>
@@ -217,33 +349,60 @@ elif page == "Geography & Channels":
     </style>
     """, unsafe_allow_html=True)
 
-    st.title("Geography & Channels – Global Sales 2025")
+    st.title("Geography & Channel")
+    st.caption("World map • Geography × Channels • Time trends + shipping lag • Stats • $ CAD")
 
-    path = pathlib.Path(__file__).parent
-    # Adjust path as needed for deployment
-    csv_path = path / "Combined_Sales_2025.csv"
-    df = pd.read_csv(csv_path)
+    ESSENTIAL = [
+        "Sale ID", "Date", "Country", "City", "Channel",
+        "Price (CAD)", "Discount (CAD)", "Shipping (CAD)", "Taxes Collected (CAD)", "Shipped Date"
+    ]
 
-    # Basic cleaning
-    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
-    df["Price (CAD)"] = pd.to_numeric(df["Price (CAD)"], errors="coerce")
-    df["Discount (CAD)"] = pd.to_numeric(df["Discount (CAD)"], errors="coerce")
-    df["Shipping (CAD)"] = pd.to_numeric(df["Shipping (CAD)"], errors="coerce")
-    df["Taxes Collected (CAD)"] = pd.to_numeric(df["Taxes Collected (CAD)"], errors="coerce")
-    df["Channel"] = df["Channel"].fillna("Unknown")
-    df["Country"] = df["Country"].fillna("Unknown")
-    df["City"] = df["City"].fillna("Unknown")
+    @st.cache_data(show_spinner=False)
+    def load_csv(p: pathlib.Path) -> pd.DataFrame:
+        try:
+            d = pd.read_csv(p)
+        except Exception:
+            d = pd.read_csv(p, encoding="utf-8-sig")
+        d.columns = d.columns.str.strip()
+        return d
 
-    df["Net Revenue"] = df["Price (CAD)"] - df["Discount (CAD)"]
-    df["Total Collected"] = df["Net Revenue"] + df["Shipping (CAD)"] + df["Taxes Collected (CAD)"]
+    def _clean_str(s: pd.Series) -> pd.Series:
+        return s.astype(str).str.strip().replace({"nan": np.nan, "None": np.nan, "": np.nan})
 
-    # Shipping lag in days
-    df["Shipped Date"] = pd.to_datetime(df["Shipped Date"], errors="coerce")
-    df["Days_To_Ship"] = (df["Shipped Date"] - df["Date"]).dt.days
+    def normalize_country(x: str) -> str:
+        s = "" if x is None else str(x).strip()
+        rep = {
+            "United States": "USA",
+            "U.S.A.": "USA",
+            "US": "USA",
+            "UK": "United Kingdom",
+            "England": "United Kingdom",
+        }
+        return rep.get(s, s or "Unknown")
 
-    # Sidebar filters
+    def basic_clean(df: pd.DataFrame) -> pd.DataFrame:
+        df = df.copy()
+        df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+        df["Shipped Date"] = pd.to_datetime(df["Shipped Date"], errors="coerce")
+        for c in ["Price (CAD)", "Discount (CAD)", "Shipping (CAD)", "Taxes Collected (CAD)"]:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+        df["Channel"] = _clean_str(df["Channel"]).fillna("Unknown")
+        df["Country"] = _clean_str(df["Country"]).map(normalize_country)
+        df["City"] = _clean_str(df["City"])
+        df["Net Revenue"] = df["Price (CAD)"] - df["Discount (CAD)"]
+        df["Total Collected"] = df["Net Revenue"] + df["Shipping (CAD)"] + df["Taxes Collected (CAD)"]
+        df["Days_To_Ship"] = (df["Shipped Date"] - df["Date"]).dt.days
+        return df
+
+    df = load_csv(DATA_FILE)
+    missing = [c for c in ESSENTIAL if c not in df.columns]
+    if missing:
+        st.error("Missing required columns: " + ", ".join(missing))
+        st.stop()
+
+    df = basic_clean(df)
+
     st.sidebar.subheader("Filters")
-
     metric = st.sidebar.selectbox(
         "Metric",
         ["Net Revenue", "Total Collected", "Price (CAD)", "Discount (CAD)", "Shipping (CAD)", "Taxes Collected (CAD)"],
@@ -260,10 +419,8 @@ elif page == "Geography & Channels":
     )
 
     base = df[(df["Date"] >= pd.to_datetime(start)) & (df["Date"] <= pd.to_datetime(end))].copy()
-
     countries = sorted([c for c in base["Country"].dropna().unique().tolist() if c])
     sel_countries = st.sidebar.multiselect("Countries", countries, default=countries)
-
     channels = sorted([c for c in base["Channel"].dropna().unique().tolist() if c])
     sel_channels = st.sidebar.multiselect("Channels", channels, default=channels)
 
@@ -274,7 +431,6 @@ elif page == "Geography & Channels":
 
     cities = sorted([c for c in base["City"].dropna().unique().tolist() if c])
     sel_cities = st.sidebar.multiselect("Cities (optional)", cities, default=[])
-
     f = base.copy()
     if sel_cities:
         f = f[f["City"].isin(sel_cities)]
@@ -283,16 +439,14 @@ elif page == "Geography & Channels":
         st.warning("No rows match the current filters.")
         st.stop()
 
-    # Basic aggregations
     country_totals = f.groupby("Country")[metric].sum().sort_values(ascending=False)
     channel_totals = f.groupby("Channel")[metric].sum().sort_values(ascending=False)
     top_country = country_totals.index[0] if len(country_totals) else "N/A"
     top_channel = channel_totals.index[0] if len(channel_totals) else "N/A"
 
-    cons_rate = (f["Consignment? (Y/N)"] == "Y").mean() * 100 if "Consignment? (Y/N)".replace(" ", "") in "".join(f.columns) else np.nan
+    cons_rate = (f["Consignment? (Y/N)"] == "Y").mean() * 100 if "Consignment? (Y/N)" in f.columns else np.nan
     neg_lag_rows = f["Days_To_Ship"].lt(0).sum()
 
-    # Tabs
     tabs = st.tabs(["Overview", "World Map", "Geography × Channels", "Time", "Stats", "Data"])
     with tabs[0]:
         st.subheader("Insights")
@@ -311,7 +465,6 @@ elif page == "Geography & Channels":
         st.subheader(f"World map - {metric} ($ CAD)")
         agg = country_totals.reset_index().rename(columns={metric: "value"})
         agg["share"] = agg["value"] / agg["value"].sum()
-
         fig = px.choropleth(
             agg,
             locations="Country",
@@ -370,128 +523,212 @@ elif page == "Geography & Channels":
             mime="text/csv"
         )
 
-
 elif page == "Price Drivers & Correlations":
+    import streamlit as st
     import pandas as pd
     import plotly.express as px
 
-    data_path = "Combined_Sales_2025-2.csv"
-    df = pd.read_csv(data_path)
+    df = pd.read_csv(DATA_FILE)
 
     if 'Date' in df.columns:
         df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
 
     for col in ['Discount (CAD)', 'Shipping (CAD)', 'Taxes Collected (CAD)']:
         if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce')
+            df[col] = df[col].fillna(0)
 
-    if 'Price (CAD)' in df.columns and 'Discount (CAD)' in df.columns:
-        df['Net_Sale_Value'] = df['Price (CAD)'] - df['Discount (CAD)']
+    df['Net_Sale_Value'] = df['Price (CAD)']
+    if 'Discount (CAD)' in df.columns:
+        df['Net_Sale_Value'] = df['Net_Sale_Value'] - df['Discount (CAD)']
+    if 'Shipping (CAD)' in df.columns:
+        df['Net_Sale_Value'] = df['Net_Sale_Value'] + df['Shipping (CAD)']
+    if 'Taxes Collected (CAD)' in df.columns:
+        df['Net_Sale_Value'] = df['Net_Sale_Value'] + df['Taxes Collected (CAD)']
 
-    if 'Shipping (CAD)' in df.columns and 'Net_Sale_Value' in df.columns:
-        df['Final_Collected_Value'] = df['Net_Sale_Value'] + df['Shipping (CAD)']
-
-    if 'Taxes Collected (CAD)' in df.columns and 'Final_Collected_Value' in df.columns:
-        df['Final_Collected_Value'] = df['Final_Collected_Value'] + df['Taxes Collected (CAD)']
-
-    if 'Date' in df.columns and 'Shipped Date' in df.columns:
-        df['Shipped Date'] = pd.to_datetime(df['Shipped Date'], errors='coerce')
-        df['Days_To_Ship'] = (df['Shipped Date'] - df['Date']).dt.days
+    if 'Date' in df.columns:
+        df['YearMonth'] = df['Date'].dt.to_period('M').astype(str)
 
     st.header("Price Drivers & Correlation Analysis")
 
-    # Correlation heatmap
-    numeric_cols = [
-        'Price (CAD)',
-        'Net_Sale_Value',
-        'Final_Collected_Value',
-        'Color Count (#)',
-        'Discount (CAD)',
-        'Shipping (CAD)',
-        'Taxes Collected (CAD)',
-        'length',
-        'width',
-        'weight',
-        'Days_To_Ship'
-    ]
-    numeric_cols = [c for c in numeric_cols if c in df.columns]
-
-    if len(numeric_cols) >= 2:
-        corr = df[numeric_cols].corr()
-        fig = px.imshow(
-            corr,
-            text_auto=False,
-            title="Correlation Heatmap – Price Drivers & Operational Metrics"
+    if 'Country' in df.columns and 'Sale ID' in df.columns:
+        group = (
+            df.groupby('Country', as_index=False)
+              .agg(
+                  Avg_Price=('Price (CAD)', 'mean'),
+                  Median_Price=('Price (CAD)', 'median'),
+                  Num_Sales=('Sale ID', 'count')
+              )
+              .sort_values('Num_Sales', ascending=False)
         )
+        fig = px.bar(group.head(15),
+                     x='Country',
+                     y='Avg_Price',
+                     hover_data=['Median_Price', 'Num_Sales'],
+                     title='Average Price by Country (Top 15 by # of Sales)')
+        fig.update_layout(xaxis_title='Country', yaxis_title='Average Price (CAD)')
+        st.plotly_chart(fig, use_container_width=True)
+        st.dataframe(group.head(20), use_container_width=True)
+    else:
+        st.write("Required columns 'Country' and/or 'Sale ID' are missing.")
+
+    if 'Grade' in df.columns:
+        fig = px.box(df,
+                     x='Grade',
+                     y='Price (CAD)',
+                     points='all',
+                     title='Price Distribution by Grade')
+        fig.update_layout(xaxis_title='Grade', yaxis_title='Price (CAD)')
         st.plotly_chart(fig, use_container_width=True)
 
-    # Price vs Shipping
+        stats_table = (
+            df.groupby('Grade')['Price (CAD)']
+              .describe()[['count', 'mean', 'std', 'min', '25%', '50%', '75%', 'max']]
+        )
+        st.dataframe(stats_table, use_container_width=True)
+    else:
+        st.write("Column 'Grade' is missing.")
+
+    if 'Color Count (#)' in df.columns:
+        fig = px.scatter(df,
+                         x='Color Count (#)',
+                         y='Price (CAD)',
+                         title='Color Count vs. Price',
+                         trendline='ols',
+                         hover_data=['Grade'] if 'Grade' in df.columns else None)
+        fig.update_layout(xaxis_title='Color Count (#)', yaxis_title='Price (CAD)')
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.write("Column 'Color Count (#)' is missing.")
+
+    if 'length' in df.columns and 'width' in df.columns and 'Price (CAD)' in df.columns:
+        df['Area'] = df['length'] * df['width']
+        fig = px.scatter(df,
+                         x='Area',
+                         y='Price (CAD)',
+                         title='Area vs. Price',
+                         hover_data=['Grade', 'Product Type'] if 'Product Type' in df.columns else ['Grade'])
+        fig.update_layout(xaxis_title='Area (length × width)', yaxis_title='Price (CAD)')
+        st.plotly_chart(fig, use_container_width=True)
+        st.dataframe(df[['length', 'width', 'Area', 'Price (CAD)']].head(30), use_container_width=True)
+    else:
+        st.write("Columns for length/width/price are missing for Area vs Price.")
+
+    if 'Net_Sale_Value' in df.columns:
+        fig = px.histogram(df,
+                           x='Net_Sale_Value',
+                           nbins=40,
+                           title='Distribution of Net Sale Value')
+        fig.update_layout(xaxis_title='Net Sale Value (CAD)', yaxis_title='Count')
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.write("Column 'Net_Sale_Value' is missing.")
+
+    if 'Date' in df.columns and 'Net_Sale_Value' in df.columns:
+        monthly = (
+            df.groupby('YearMonth', as_index=False)
+              .agg(
+                  Total_Net_Sales=('Net_Sale_Value', 'sum'),
+                  Avg_Net_Sales=('Net_Sale_Value', 'mean'),
+                  Num_Transactions=('Sale ID', 'count') if 'Sale ID' in df.columns else ('Net_Sale_Value', 'count')
+              )
+        )
+        fig = px.line(monthly,
+                      x='YearMonth',
+                      y='Total_Net_Sales',
+                      title='Total Net Sales Over Time',
+                      markers=True)
+        fig.update_layout(xaxis_title='Year-Month', yaxis_title='Total Net Sales (CAD)')
+        st.plotly_chart(fig, use_container_width=True)
+        st.dataframe(monthly.head(24), use_container_width=True)
+    else:
+        st.write("Could not compute monthly Net_Sale_Value due to missing columns.")
+
     if 'Shipping (CAD)' in df.columns and 'Price (CAD)' in df.columns:
-        st.subheader("Price vs Shipping Cost")
-        ship_df = df[df['Shipping (CAD)'] > 0]
+        ship_df = df[df['Shipping (CAD)'] > 0].copy()
         if not ship_df.empty:
-            fig2 = px.scatter(
-                ship_df,
-                x='Shipping (CAD)',
-                y='Price (CAD)',
-                title='Shipping Cost vs. Price',
-                trendline='ols'
-            )
-            st.plotly_chart(fig2, use_container_width=True)
+            fig = px.scatter(ship_df,
+                             x='Shipping (CAD)',
+                             y='Price (CAD)',
+                             title='Shipping Cost vs Price',
+                             hover_data=[c for c in ['Product Type', 'Country', 'Customer Type'] if c in ship_df.columns])
+            fig.update_layout(xaxis_title='Shipping (CAD)', yaxis_title='Price (CAD)')
+            st.plotly_chart(fig, use_container_width=True)
+            st.dataframe(ship_df[['Shipping (CAD)', 'Price (CAD)']].head(30), use_container_width=True)
+        else:
+            st.write("No rows with positive shipping cost.")
+    else:
+        st.write("Column 'Shipping (CAD)' is missing.")
 
-    # Simple distributions
-    if 'Price (CAD)' in df.columns:
-        st.subheader("Price Distribution")
-        fig3 = px.histogram(df, x='Price (CAD)', nbins=40, title="Price Distribution")
-        st.plotly_chart(fig3, use_container_width=True)
-
-    if 'Final_Collected_Value' in df.columns:
-        st.subheader("Final Collected Value Distribution")
-        fig4 = px.histogram(df, x='Final_Collected_Value', nbins=40, title="Final Collected Value Distribution")
-        st.plotly_chart(fig4, use_container_width=True)
-
-
-elif page == "Dinosty 2025 Overall Sales":
+elif page == "Overall Sales EDA":
+    import streamlit as st
     import pandas as pd
     import numpy as np
     import matplotlib.pyplot as plt
 
-    df = pd.read_csv("Combined_Sales_2025.csv")
+    df = pd.read_csv(DATA_FILE)
 
-    df["Net Revenue"] = df["Price (CAD)"] - df["Discount (CAD)"]
-    df.rename(columns={"weight": "Weight", "width": "Width", "length": "Length"}, inplace=True)
+    df.head()
 
-    st.header("Dinosty 2025 – Overall Sales EDA (Notebook Logic)")
-
-    st.write("The following visualizations are from your original notebook logic (matplotlib).")
-
-    # Example: revenue distribution
-    fig1, ax1 = plt.subplots(figsize=(10, 6))
-    ax1.hist(df["Net Revenue"].dropna(), bins=40, color="teal", alpha=0.7)
-    ax1.set_title("Distribution of Net Revenue")
-    ax1.set_xlabel("Net Revenue (CAD)")
-    ax1.set_ylabel("Frequency")
-    st.pyplot(fig1)
-
-    # Example: shipping time vs net revenue
-    if "Shipped Date" in df.columns and "Date" in df.columns:
+    if "Date" in df.columns and "Shipped Date" in df.columns:
         df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
         df["Shipped Date"] = pd.to_datetime(df["Shipped Date"], errors="coerce")
         df["Days_To_Ship"] = (df["Shipped Date"] - df["Date"]).dt.days
 
-        fig2, ax2 = plt.subplots(figsize=(10, 6))
-        ax2.scatter(df["Days_To_Ship"], df["Net Revenue"], alpha=0.6, color="teal")
-        ax2.set_title("Shipping Time vs. Net Revenue")
-        ax2.set_xlabel("Days to Ship")
-        ax2.set_ylabel("Net Revenue (CAD)")
+    df["Net Revenue"] = df["Price (CAD)"] - df["Discount (CAD)"]
+    df.rename(columns={"weight": "Weight", "width": "Width", "length": "Length"}, inplace=True)
 
-        # Trendline
+    df.head()
+    df.describe()
+    rev_by_type = df.groupby("Product Type")["Net Revenue"].sum().sort_values()
+
+    st.header("Dinosty 2025 – Overall Sales EDA")
+
+    plt.figure(figsize=(10, 6))
+    rev_by_type.plot(kind="barh", color="teal")
+    plt.title("Revenue by Product Type")
+    plt.xlabel("Total Net Revenue (CAD)")
+    plt.ylabel("Product Type")
+    st.pyplot(plt.gcf())
+
+    rev_type_grade = df.pivot_table(
+        index="Product Type",
+        columns="Grade",
+        values="Net Revenue",
+        aggfunc="sum",
+        fill_value=0
+    )
+
+    plt.figure(figsize=(12, 7))
+    rev_type_grade.plot(kind="bar", stacked=True, figsize=(12, 7), colormap="tab20")
+    plt.title("Revenue by Product Type and Grade")
+    plt.xlabel("Product Type")
+    plt.ylabel("Total Net Revenue (CAD)")
+    plt.legend(title="Grade")
+    plt.xticks(rotation=45)
+    st.pyplot(plt.gcf())
+
+    plt.figure(figsize=(12, 6))
+    df.boxplot(column="Price (CAD)", by="Product Type", grid=False, rot=45)
+    plt.title("Price Distribution by Product Type")
+    plt.suptitle("")
+    plt.xlabel("Product Type")
+    plt.ylabel("Price (CAD)")
+    st.pyplot(plt.gcf())
+
+    if "Days_To_Ship" in df.columns:
+        plt.figure(figsize=(10, 6))
+        plt.scatter(df["Days_To_Ship"], df["Net Revenue"], alpha=0.6, color="teal")
+        plt.title("Shipping Time vs. Net Revenue")
+        plt.xlabel("Days to Ship")
+        plt.ylabel("Net Revenue (CAD)")
+
         clean = df.dropna(subset=["Days_To_Ship", "Net Revenue"])
         if not clean.empty:
             z = np.polyfit(clean["Days_To_Ship"], clean["Net Revenue"], 1)
             p = np.poly1d(z)
             x_vals = np.linspace(clean["Days_To_Ship"].min(), clean["Days_To_Ship"].max(), 100)
-            ax2.plot(x_vals, p(x_vals), color="red")
+            plt.plot(x_vals, p(x_vals), color="red")
 
-        st.pyplot(fig2)
-
+        st.pyplot(plt.gcf())
+    else:
+        st.info("Days_To_Ship column not available; cannot plot shipping vs revenue.")
