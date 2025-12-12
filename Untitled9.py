@@ -167,6 +167,21 @@ st.markdown(
 
     /* Dataframes background */
     .stDataFrame, .stTable { background: #FFFFFF !important; }
+
+    /* ✅ Highlight/Selection: keep text BLACK (fixes the blue selected text issue) */
+    ::selection {
+      background: #E6E6E6 !important;
+      color: #000000 !important;
+    }
+    ::-moz-selection {
+      background: #E6E6E6 !important;
+      color: #000000 !important;
+    }
+    input::selection, textarea::selection {
+      background: #E6E6E6 !important;
+      color: #000000 !important;
+    }
+
     </style>
     """,
     unsafe_allow_html=True,
