@@ -80,26 +80,13 @@ st.markdown(
       border: 1px solid var(--border) !important;
     }
     [data-testid="metric-container"] [data-testid="stMetricValue"] {
- /* ✅ FIX: KPI row text is too light — force solid black everywhere in the metric cards */
-[data-testid="metric-container"] * {
-  color: #000000 !important;
-  opacity: 1 !important;
-  filter: none !important;
-}
-
-/* Metric label + delta can be specially targeted too (extra safety) */
-[data-testid="stMetricLabel"],
-[data-testid="stMetricDelta"],
-[data-testid="stMetricValue"] {
-  color: #000000 !important;
-  opacity: 1 !important;
-}
-
-/* Caption under KPIs (your "Filtered view..." line) */
-.stCaption, .stMarkdown small {
-  color: #000000 !important;
-  opacity: 1 !important;
-}
+      font-size: 1.55rem !important;
+      overflow: visible !important;
+      text-overflow: clip !important;
+      white-space: normal !important;
+      line-height: 1.2 !important;
+      color: var(--text) !important;
+    }
 
     /* Tabs */
     .stTabs [data-baseweb="tab"] {
@@ -199,6 +186,7 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
 
 
 # -----------------------------
