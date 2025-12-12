@@ -42,10 +42,15 @@ st.markdown(
       --text: #000000;
       --border: #D9D9D9;
       --soft: #F5F5F5;
+
+      /* Streamlit theme vars (fixes faint text in widgets/metrics) */
+      --background-color: #FFFFFF;
+      --secondary-background-color: #FFFFFF;
+      --text-color: #000000;
     }
 
     /* App background + default text */
-    html, body, [class*="css"] {
+    html, body, [class*="css"], .stApp {
       font-size: 0.95rem !important;
       background: var(--bg) !important;
       color: var(--text) !important;
@@ -62,15 +67,25 @@ st.markdown(
 
     div[data-testid="column"] { padding-left: 0.40rem; padding-right: 0.40rem; }
 
+    /* Header / toolbar */
+    header[data-testid="stHeader"] { background: var(--bg) !important; }
+    [data-testid="stToolbar"], [data-testid="stDecoration"] { background: var(--bg) !important; }
+
     /* Sidebar: force white background + black text */
     section[data-testid="stSidebar"] {
       background: var(--bg) !important;
       color: var(--text) !important;
       border-right: 1px solid var(--border) !important;
     }
-    section[data-testid="stSidebar"] * {
-      color: var(--text) !important;
+    section[data-testid="stSidebar"] * { color: var(--text) !important; }
+
+    /* File uploader: remove dark dropzone */
+    [data-testid="stFileUploaderDropzone"] {
+      background: #FFFFFF !important;
+      border: 1px dashed var(--border) !important;
+      border-radius: 12px !important;
     }
+    [data-testid="stFileUploaderDropzone"] * { color: #000000 !important; }
 
     /* Metric cards (keep your sizing) */
     [data-testid="metric-container"] {
@@ -79,20 +94,26 @@ st.markdown(
       background: var(--bg) !important;
       border: 1px solid var(--border) !important;
     }
+    /* Force ALL metric text black (fixes "can't see numbers" at top) */
+    [data-testid="metric-container"] * {
+      color: #000000 !important;
+      opacity: 1 !important;
+    }
     [data-testid="metric-container"] [data-testid="stMetricValue"] {
       font-size: 1.55rem !important;
       overflow: visible !important;
       text-overflow: clip !important;
       white-space: normal !important;
       line-height: 1.2 !important;
-      color: var(--text) !important;
     }
 
     /* Tabs */
     .stTabs [data-baseweb="tab"] {
-      font-size: 0.95rem;
-      color: var(--text) !important;
+      font-size: 0.95rem !important;
+      color: #000000 !important;
+      opacity: 1 !important;
     }
+    .stTabs [data-baseweb="tab"] * { color: #000000 !important; opacity: 1 !important; }
 
     /* Headings */
     h1,h2,h3,h4,h5,h6,
@@ -101,9 +122,12 @@ st.markdown(
       font-family: SpaceGroteskHeader, SpaceGrotesk, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif !important;
     }
 
+    /* Captions + help text */
+    [data-testid="stCaptionContainer"] * { color: #000000 !important; opacity: 1 !important; }
+    small, .stMarkdown p { color: #000000 !important; opacity: 1 !important; }
+
     /* -----------------------------
-       ✅ INPUTS: WHITE BACKGROUND + BLACK TEXT (everywhere)
-       (selectbox / multiselect / text input / textarea / date input / number input)
+       INPUTS: WHITE BACKGROUND + BLACK TEXT (everywhere)
     ------------------------------ */
 
     /* Input shells */
@@ -116,10 +140,12 @@ st.markdown(
       border-radius: 10px !important;
     }
 
+    /* Placeholder */
+    input::placeholder, textarea::placeholder { color: #000000 !important; opacity: 0.55 !important; }
+
     /* Text inside selects */
-    div[data-baseweb="select"] span {
-      color: #000000 !important;
-    }
+    div[data-baseweb="select"] span { color: #000000 !important; opacity: 1 !important; }
+    div[data-baseweb="select"] svg { fill: #000000 !important; }
 
     /* Dropdown popovers (opened menu) */
     div[data-baseweb="popover"] *,
@@ -127,11 +153,9 @@ st.markdown(
     li[role="option"] {
       background: #FFFFFF !important;
       color: #000000 !important;
+      opacity: 1 !important;
     }
-
-    li[role="option"]:hover {
-      background: var(--soft) !important;
-    }
+    li[role="option"]:hover { background: var(--soft) !important; }
 
     /* Multiselect tags */
     .stMultiSelect span[data-baseweb="tag"] {
@@ -139,9 +163,7 @@ st.markdown(
       color: #000000 !important;
       border: 1px solid var(--border) !important;
     }
-    .stMultiSelect span[data-baseweb="tag"] svg {
-      fill: #000000 !important;
-    }
+    .stMultiSelect span[data-baseweb="tag"] svg { fill: #000000 !important; }
 
     /* Date / Number inputs sometimes use these wrappers */
     div[data-testid="stDateInput"] input,
@@ -152,10 +174,18 @@ st.markdown(
       border-radius: 10px !important;
     }
 
-    /* Sliders: make text readable */
-    .stSlider * { color: var(--text) !important; }
+    /* Radio / checkbox / toggle labels */
+    [data-testid="stRadio"] * ,
+    [data-testid="stCheckbox"] * ,
+    [data-testid="stToggle"] * {
+      color: #000000 !important;
+      opacity: 1 !important;
+    }
 
-    /* Buttons: keep readable on white */
+    /* Sliders: make text readable */
+    [data-testid="stSlider"] * { color: #000000 !important; opacity: 1 !important; }
+
+    /* Buttons: readable on white */
     .stButton > button {
       background: #FFFFFF !important;
       color: #000000 !important;
@@ -165,23 +195,14 @@ st.markdown(
     .stButton > button:hover { background: var(--soft) !important; }
     .stButton > button * { color: #000000 !important; }
 
-    /* Dataframes background */
+    /* Dataframes background + text */
     .stDataFrame, .stTable { background: #FFFFFF !important; }
+    .stDataFrame *, .stTable * { color: #000000 !important; opacity: 1 !important; }
 
-    /* ✅ Highlight/Selection: keep text BLACK (fixes the blue selected text issue) */
-    ::selection {
-      background: #E6E6E6 !important;
-      color: #000000 !important;
-    }
-    ::-moz-selection {
-      background: #E6E6E6 !important;
-      color: #000000 !important;
-    }
-    input::selection, textarea::selection {
-      background: #E6E6E6 !important;
-      color: #000000 !important;
-    }
-
+    /* Highlight/Selection: keep text BLACK */
+    ::selection { background: #E6E6E6 !important; color: #000000 !important; }
+    ::-moz-selection { background: #E6E6E6 !important; color: #000000 !important; }
+    input::selection, textarea::selection { background: #E6E6E6 !important; color: #000000 !important; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -216,7 +237,12 @@ def to_num(df: pd.DataFrame, col: str):
 
 
 def style_fig(fig, height=430):
-    # ✅ White chart background + black text (and no hovertemplate crash)
+    """
+    Standard Plotly styling:
+    - White chart background
+    - Black text everywhere
+    - Avoids hovertemplate crashes on trace types that don't support it
+    """
     fig.update_layout(
         height=height,
         margin=dict(l=10, r=10, t=55, b=40),
@@ -226,10 +252,12 @@ def style_fig(fig, height=430):
         legend=dict(
             font=dict(size=11, family="SpaceGrotesk", color="#000000"),
             orientation="h",
-            yanchor="bottom", y=1.02,
-            xanchor="left", x=0,
+            yanchor="bottom",
+            y=1.02,
+            xanchor="left",
+            x=0,
         ),
-        hoverlabel=dict(font_size=11, font_family="SpaceGrotesk"),
+        hoverlabel=dict(font_size=11, font_family="SpaceGrotesk", font_color="#000000"),
         xaxis=dict(
             title_font=dict(size=13, family="SpaceGrotesk", color="#000000"),
             tickfont=dict(size=11, family="SpaceGrotesk", color="#000000"),
@@ -240,9 +268,13 @@ def style_fig(fig, height=430):
             tickfont=dict(size=11, family="SpaceGrotesk", color="#000000"),
             automargin=True,
         ),
+        coloraxis_colorbar=dict(
+            tickfont=dict(color="#000000"),
+            titlefont=dict(color="#000000"),
+        ),
     )
 
-    # maps
+    # Maps / choropleths
     try:
         fig.update_geos(bgcolor="#FFFFFF")
     except Exception:
@@ -256,10 +288,12 @@ def style_fig(fig, height=430):
         except Exception:
             pass
 
-    fig.for_each_trace(_safe_unset_hovertemplate)
+    try:
+        fig.for_each_trace(_safe_unset_hovertemplate)
+    except Exception:
+        pass
+
     return fig
-
-
 # -----------------------------
 # Data Loading & Preparation
 # -----------------------------
@@ -287,6 +321,7 @@ def load_data(uploaded_file=None):
             try:
                 return pd.read_csv(src, encoding="utf-8", encoding_errors="replace")
             except TypeError:
+                # older pandas: no encoding_errors
                 return pd.read_csv(src, encoding="latin-1")
 
     if uploaded_file is not None:
@@ -294,11 +329,11 @@ def load_data(uploaded_file=None):
     else:
         if csv_path is None:
             st.error(
-                "❌ CSV file not found.\n\n"
-                "Option A: Upload your CSV in the sidebar.\n"
-                "Option B: Put **Combined_Sales_2025.csv** in the same folder as this app."
-            )
-            st.stop()
+            "❌ CSV file not found.\n\n"
+            "Option A: Upload your CSV in the sidebar.\n"
+            "Option B: Put **Combined_Sales_2025.csv** in the same folder as this app."
+        )
+        st.stop()
         df = _read_csv(csv_path)
 
     # 3) Ensure unique column names
@@ -366,10 +401,7 @@ def load_data(uploaded_file=None):
 
     # 12) Compliance
     if safe_col(df, "Export Permit (PDF link)"):
-        df["Has Export Permit"] = (
-            df["Export Permit (PDF link)"].astype(str).str.strip().ne("")
-            & df["Export Permit (PDF link)"].notna()
-        )
+        df["Has Export Permit"] = df["Export Permit (PDF link)"].astype(str).str.strip().ne("") & df["Export Permit (PDF link)"].notna()
     else:
         df["Has Export Permit"] = False
 
@@ -557,53 +589,32 @@ k1, k2, k3, k4, k5, k6 = st.columns(6)
 
 with k1:
     if metric_col == "OrderCount":
-        st.metric(
-            metric_label,
-            fmt_int(cur_total_metric),
-            delta=(None if not np.isfinite(prev_total_metric) else f"{int(cur_total_metric - prev_total_metric):,}"),
-        )
+        st.metric(metric_label, fmt_int(cur_total_metric),
+                  delta=(None if not np.isfinite(prev_total_metric) else f"{int(cur_total_metric - prev_total_metric):,}"))
     else:
-        st.metric(
-            metric_label,
-            fmt_money(cur_total_metric),
-            delta=(None if not np.isfinite(prev_total_metric) else fmt_money(cur_total_metric - prev_total_metric)),
-        )
+        st.metric(metric_label, fmt_money(cur_total_metric),
+                  delta=(None if not np.isfinite(prev_total_metric) else fmt_money(cur_total_metric - prev_total_metric)))
 
 with k2:
-    st.metric(
-        "Total Net Sales",
-        fmt_money(cur_total_net),
-        delta=(None if not np.isfinite(prev_total_net) else fmt_money(cur_total_net - prev_total_net)),
-    )
+    st.metric("Total Net Sales", fmt_money(cur_total_net),
+              delta=(None if not np.isfinite(prev_total_net) else fmt_money(cur_total_net - prev_total_net)))
 
 with k3:
-    st.metric(
-        "Total Orders",
-        fmt_int(cur_orders),
-        delta=(None if not np.isfinite(prev_orders) else f"{int(cur_orders - prev_orders):,}"),
-    )
+    st.metric("Total Orders", fmt_int(cur_orders),
+              delta=(None if not np.isfinite(prev_orders) else f"{int(cur_orders - prev_orders):,}"))
 
 with k4:
-    st.metric(
-        "Unique Customers",
-        fmt_int(cur_unique),
-        delta=(None if not np.isfinite(prev_unique) else f"{int(cur_unique - prev_unique):,}"),
-    )
+    st.metric("Unique Customers", fmt_int(cur_unique),
+              delta=(None if not np.isfinite(prev_unique) else f"{int(cur_unique - prev_unique):,}"))
 
 with k5:
-    st.metric(
-        "Consigned Share",
-        f"{cur_cons_share*100:,.1f}%",
-        delta=(None if not np.isfinite(prev_cons_share) else f"{(cur_cons_share - prev_cons_share)*100:,.1f}%"),
-    )
+    st.metric("Consigned Share", f"{cur_cons_share*100:,.1f}%",
+              delta=(None if not np.isfinite(prev_cons_share) else f"{(cur_cons_share - prev_cons_share)*100:,.1f}%"))
 
 with k6:
     if np.isfinite(cur_avg_ship):
-        st.metric(
-            "Avg Days to Ship",
-            f"{cur_avg_ship:,.1f}",
-            delta=(None if not np.isfinite(prev_avg_ship) else f"{(cur_avg_ship - prev_avg_ship):,.1f}"),
-        )
+        st.metric("Avg Days to Ship", f"{cur_avg_ship:,.1f}",
+                  delta=(None if not np.isfinite(prev_avg_ship) else f"{(cur_avg_ship - prev_avg_ship):,.1f}"))
     else:
         st.metric("Avg Days to Ship", "—")
 
@@ -685,15 +696,7 @@ with tab_overview:
 
             fig = go.Figure()
             fig.add_trace(go.Bar(x=pareto["Country"], y=pareto[metric_col], name=metric_label))
-            fig.add_trace(
-                go.Scatter(
-                    x=pareto["Country"],
-                    y=pareto["CumShare"],
-                    name="Cumulative share",
-                    yaxis="y2",
-                    mode="lines+markers",
-                )
-            )
+            fig.add_trace(go.Scatter(x=pareto["Country"], y=pareto["CumShare"], name="Cumulative share", yaxis="y2", mode="lines+markers"))
             fig.update_layout(
                 title=f"Pareto – Top {topn} Countries",
                 xaxis_title="",
@@ -715,20 +718,8 @@ with tab_overview:
 
     with c4:
         if safe_col(f, "Product Type"):
-            by_prod = (
-                f.groupby("Product Type", as_index=False)[metric_col]
-                .sum()
-                .sort_values(metric_col, ascending=False)
-                .head(12)
-            )
-            fig = px.bar(
-                by_prod,
-                x=metric_col,
-                y="Product Type",
-                orientation="h",
-                text_auto=".2s",
-                title=f"Top Product Types by {metric_label}",
-            )
+            by_prod = f.groupby("Product Type", as_index=False)[metric_col].sum().sort_values(metric_col, ascending=False).head(12)
+            fig = px.bar(by_prod, x=metric_col, y="Product Type", orientation="h", text_auto=".2s", title=f"Top Product Types by {metric_label}")
             fig.update_layout(xaxis_title=metric_label, yaxis_title="")
             fig = style_fig(fig, height=380)
             st.plotly_chart(fig, use_container_width=True, key=pkey("ov_prod"))
@@ -805,6 +796,7 @@ with tab_price:
                 st.plotly_chart(fig, use_container_width=True, key=pkey("pd_driver_bar"))
 
             with c2:
+                # Density view for numeric drivers: Color Count, Area, Weight
                 numeric_driver = st.selectbox(
                     "Numeric driver (optional)",
                     options=[x for x in ["Color Count (#)", "weight", "Area (mm²)", "Price per mm²"] if safe_col(p_df, x)],
@@ -838,6 +830,7 @@ with tab_price:
 
         if dist_by:
             tmp = p_df.dropna(subset=["Net Sales"]).copy()
+            # Violin (shows full shape) + points
             fig = px.violin(
                 tmp,
                 x=dist_by,
@@ -850,6 +843,7 @@ with tab_price:
             fig = style_fig(fig, height=470)
             st.plotly_chart(fig, use_container_width=True, key=pkey("pd_violin"))
 
+            # Histogram split by same group (top 6)
             top_groups = tmp[dist_by].value_counts().head(6).index.tolist()
             tmp2 = tmp[tmp[dist_by].isin(top_groups)].copy()
             fig2 = px.histogram(
@@ -883,10 +877,12 @@ with tab_price:
                 label = "Order Count"
 
             if not pv.empty:
+                # limit size for readability
                 max_rows_hm = st.slider("Max rows in heatmap", 5, 35, 20, key="pd_hm_maxr")
                 max_cols_hm = st.slider("Max columns in heatmap", 5, 35, 15, key="pd_hm_maxc")
 
-                pv2 = pv.copy().iloc[:max_rows_hm, :max_cols_hm]
+                pv2 = pv.copy()
+                pv2 = pv2.iloc[:max_rows_hm, :max_cols_hm]
 
                 hm = px.imshow(
                     pv2,
@@ -920,6 +916,7 @@ with tab_price:
             fig = style_fig(fig, height=520)
             st.plotly_chart(fig, use_container_width=True, key=pkey("pd_corr"))
 
+            # Best quick drivers vs Net Sales
             if "Net Sales" in corr.columns:
                 drivers = corr["Net Sales"].drop(labels=["Net Sales"]).dropna().sort_values(key=lambda s: s.abs(), ascending=False).head(8)
                 ddf = drivers.reset_index()
@@ -978,6 +975,7 @@ with tab_mix:
     with m_tabs[1]:
         if safe_col(m_df, "Product Type"):
             mix = m_df.groupby(["Product Type", "Channel"], as_index=False)[metric_col].sum()
+            # 100% stacked
             totals = mix.groupby("Product Type", as_index=False)[metric_col].sum().rename(columns={metric_col: "Total"})
             mix = mix.merge(totals, on="Product Type", how="left")
             mix["Share"] = np.where(mix["Total"] > 0, mix[metric_col] / mix["Total"], 0)
@@ -1014,13 +1012,18 @@ with tab_mix:
             sank = m_df.groupby(["Channel", "Product Type", "Grade"], as_index=False)[metric_col].sum()
             sank = sank[sank[metric_col] > 0].copy()
 
+            # limit nodes for readability
             top_prod = m_df.groupby("Product Type")[metric_col].sum().sort_values(ascending=False).head(12).index
             sank = sank[sank["Product Type"].isin(top_prod)]
 
-            labels = pd.Index(pd.concat([sank["Channel"], sank["Product Type"], sank["Grade"]]).unique()).tolist()
+            labels = pd.Index(
+                pd.concat([sank["Channel"], sank["Product Type"], sank["Grade"]]).unique()
+            ).tolist()
             idx = {lab: i for i, lab in enumerate(labels)}
 
+            # Channel -> Product Type
             a = sank.groupby(["Channel", "Product Type"], as_index=False)[metric_col].sum()
+            # Product Type -> Grade
             b = sank.groupby(["Product Type", "Grade"], as_index=False)[metric_col].sum()
 
             src = [idx[x] for x in a["Channel"]] + [idx[x] for x in b["Product Type"]]
@@ -1032,7 +1035,6 @@ with tab_mix:
                 link=dict(source=src, target=tgt, value=val),
             )])
             fig.update_layout(title=f"Sankey – {metric_label}", height=520, margin=dict(l=10, r=10, t=60, b=10))
-            fig = style_fig(fig, height=520)
             st.plotly_chart(fig, use_container_width=True, key=pkey("mix_sankey"))
         else:
             st.info("Need 'Product Type' and 'Grade' columns for this Sankey view.")
@@ -1081,11 +1083,9 @@ with tab_segments:
     with s_tabs[2]:
         cust_stats = (
             s_df.groupby(["Customer Name", "Customer Type"], as_index=False)
-            .agg(
-                Orders=("Sale ID", "count") if safe_col(s_df, "Sale ID") else ("OrderCount", "sum"),
-                Total_Net_Sales=("Net Sales", "sum"),
-                Avg_Order=("Net Sales", "mean"),
-            )
+            .agg(Orders=("Sale ID", "count") if safe_col(s_df, "Sale ID") else ("OrderCount", "sum"),
+                 Total_Net_Sales=("Net Sales", "sum"),
+                 Avg_Order=("Net Sales", "mean"))
             .sort_values("Total_Net_Sales", ascending=False)
         )
 
@@ -1137,15 +1137,11 @@ with tab_segments:
             st.plotly_chart(fig, use_container_width=True, key=pkey("rfm_bubble"))
 
         with c2:
+            # Simple tiering
             rfm["R_Tier"] = pd.qcut(rfm["RecencyDays"], 4, labels=["Best", "Good", "Okay", "At Risk"])
             rfm["F_Tier"] = pd.qcut(rfm["Frequency"].rank(method="first"), 4, labels=["Low", "Mid", "High", "Top"])
             rfm["M_Tier"] = pd.qcut(rfm["Monetary"].rank(method="first"), 4, labels=["Low", "Mid", "High", "Top"])
-            tier = (
-                rfm.groupby(["R_Tier", "F_Tier"], as_index=False)["Monetary"].mean()
-                .pivot(index="R_Tier", columns="F_Tier", values="Monetary")
-                .fillna(0)
-                .round(0)
-            )
+            tier = rfm.groupby(["R_Tier", "F_Tier"], as_index=False)["Monetary"].mean().pivot(index="R_Tier", columns="F_Tier", values="Monetary").fillna(0).round(0)
 
             fig = px.imshow(
                 tier,
@@ -1197,6 +1193,7 @@ with tab_geo:
             st.plotly_chart(fig, use_container_width=True, key=pkey("geo_topch"))
 
         with c3:
+            # Channel share by country (top 10 countries)
             top = by_c.head(10)["Country"]
             mix = g_df[g_df["Country"].isin(top)].groupby(["Country", "Channel"], as_index=False)[metric_col].sum()
             totals = mix.groupby("Country", as_index=False)[metric_col].sum().rename(columns={metric_col: "Total"})
@@ -1327,7 +1324,6 @@ with tab_timing:
                 gauge={"axis": {"range": [0, 100]}}
             ))
             gauge.update_layout(height=320, margin=dict(l=10, r=10, t=60, b=10))
-            gauge = style_fig(gauge, height=320)
             st.plotly_chart(gauge, use_container_width=True, key=pkey("tim_gauge"))
 
         with t_tabs[1]:
@@ -1345,6 +1341,7 @@ with tab_timing:
             c1, c2 = st.columns(2)
 
             with c1:
+                # Violin by channel
                 fig = px.violin(
                     t_df,
                     x="Channel",
@@ -1358,6 +1355,7 @@ with tab_timing:
                 st.plotly_chart(fig, use_container_width=True, key=pkey("tim_violin_ch"))
 
             with c2:
+                # Bucket distribution stacked bar
                 bins = [-np.inf, 3, 7, 14, 30, np.inf]
                 labels = ["0–3", "4–7", "8–14", "15–30", "31+"]
                 t_df["Ship Bucket"] = pd.cut(t_df["Days to Ship"], bins=bins, labels=labels)
@@ -1497,6 +1495,7 @@ with tab_seasonality:
             st.info("No data to display for Month × Channel.")
 
     with se_tabs[2]:
+        # Year x Month heatmap
         ym = se_df.copy()
         ym["MonthShort"] = ym["Date"].dt.strftime("%b")
         pv = ym.pivot_table(index="Year", columns="MonthShort", values=metric_col, aggfunc="sum").fillna(0)
