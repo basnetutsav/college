@@ -901,4 +901,548 @@ with tab_segments:
                 y="Total_Net_Sales",
                 color="Customer Type",
                 size="Avg_Order",
-                title="Customer Value – Orders vs Total Net Sales (bubble = avg
+                title="Customer Value – Orders vs Total Net Sales (bubble = avg order)",
+                hover_data=["Customer Name"],
+            )
+            fig.update_layout(xaxis_title="Orders", yaxis_title="Total Net Sales (CAD)")
+            fig = style_fig(fig, height=430)
+            st.plotly_chart(fig, use_container_width=True, key=pkey("seg_scatter"))
+
+    with s_tabs[3]:
+        st.markdown("#### RFM (Recency, Frequency, Monetary)")
+        ref_date = s_df["Date"].max()
+        rfm = (
+            s_df.groupby("Customer Name", as_index=False)
+            .agg(
+                LastPurchase=("Date", "max"),
+                Frequency=("OrderCount", "sum"),
+                Monetary=("Net Sales", "sum"),
+            )
+        )
+        rfm["RecencyDays"] = (ref_date - rfm["LastPurchase"]).dt.days
+        rfm = rfm.replace([np.inf, -np.inf], np.nan).dropna(subset=["RecencyDays", "Frequency", "Monetary"])
+
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            fig = px.scatter(
+                rfm,
+                x="RecencyDays",
+                y="Monetary",
+                size="Frequency",
+                title="RFM Bubble: Recency vs Monetary (size = Frequency)",
+                hover_data=["Customer Name"],
+            )
+            fig.update_layout(xaxis_title="Recency (days since last purchase)", yaxis_title="Total Net Sales (CAD)")
+            fig = style_fig(fig, height=450)
+            st.plotly_chart(fig, use_container_width=True, key=pkey("rfm_bubble"))
+
+        with c2:
+            # Simple tiering
+            rfm["R_Tier"] = pd.qcut(rfm["RecencyDays"], 4, labels=["Best", "Good", "Okay", "At Risk"])
+            rfm["F_Tier"] = pd.qcut(rfm["Frequency"].rank(method="first"), 4, labels=["Low", "Mid", "High", "Top"])
+            rfm["M_Tier"] = pd.qcut(rfm["Monetary"].rank(method="first"), 4, labels=["Low", "Mid", "High", "Top"])
+            tier = rfm.groupby(["R_Tier", "F_Tier"], as_index=False)["Monetary"].mean().pivot(index="R_Tier", columns="F_Tier", values="Monetary").fillna(0).round(0)
+
+            fig = px.imshow(
+                tier,
+                aspect="auto",
+                title="Average Monetary by Recency Tier × Frequency Tier",
+                labels=dict(x="Frequency Tier", y="Recency Tier", color="Avg Monetary"),
+            )
+            fig = style_fig(fig, height=450)
+            st.plotly_chart(fig, use_container_width=True, key=pkey("rfm_hm"))
+
+    with s_tabs[4]:
+        cols = ["Sale ID", "Date", "Customer Name", "Customer Type", "Country", "City", "Channel", metric_col, "Net Sales"]
+        cols = [c for c in cols if c in s_df.columns]
+        subset = s_df[cols].copy()
+        subset = subset.loc[:, ~subset.columns.duplicated()]
+        st.dataframe(subset.head(max_rows), use_container_width=True)
+        st.download_button(
+            "Download customer-segment subset (CSV)",
+            data=subset.to_csv(index=False).encode("utf-8"),
+            file_name="customer_segments_subset.csv",
+            mime="text/csv",
+            key="dl_segments",
+        )
+
+# -----------------------------
+# TAB: Geography & Channels (upgraded)
+# -----------------------------
+with tab_geo:
+    st.subheader("Geography & Channels")
+    g_df = f.copy()
+
+    g_tabs = st.tabs(["Overview", "World Map", "Channel Map", "Country × Channel", "Top Markets", "Data"])
+
+    with g_tabs[0]:
+        by_c = g_df.groupby("Country", as_index=False)[metric_col].sum().sort_values(metric_col, ascending=False)
+        by_ch = g_df.groupby("Channel", as_index=False)[metric_col].sum().sort_values(metric_col, ascending=False)
+
+        c1, c2, c3 = st.columns([1, 1, 1])
+        with c1:
+            fig = px.bar(by_c.head(12), x="Country", y=metric_col, title=f"Top Countries by {metric_label}", text_auto=".2s")
+            fig.update_layout(xaxis_title="", yaxis_title=metric_label)
+            fig = style_fig(fig, height=390)
+            st.plotly_chart(fig, use_container_width=True, key=pkey("geo_topc"))
+
+        with c2:
+            fig = px.bar(by_ch, x="Channel", y=metric_col, title=f"{metric_label} by Channel", text_auto=".2s")
+            fig.update_layout(xaxis_title="", yaxis_title=metric_label)
+            fig = style_fig(fig, height=390)
+            st.plotly_chart(fig, use_container_width=True, key=pkey("geo_topch"))
+
+        with c3:
+            # Channel share by country (top 10 countries)
+            top = by_c.head(10)["Country"]
+            mix = g_df[g_df["Country"].isin(top)].groupby(["Country", "Channel"], as_index=False)[metric_col].sum()
+            totals = mix.groupby("Country", as_index=False)[metric_col].sum().rename(columns={metric_col: "Total"})
+            mix = mix.merge(totals, on="Country", how="left")
+            mix["Share"] = np.where(mix["Total"] > 0, mix[metric_col] / mix["Total"], 0)
+
+            fig = px.bar(mix, x="Country", y="Share", color="Channel", barmode="stack", title="Channel Share within Top Countries (100%)")
+            fig.update_layout(xaxis_title="", yaxis_title="Share", yaxis_tickformat=".0%")
+            fig = style_fig(fig, height=390)
+            st.plotly_chart(fig, use_container_width=True, key=pkey("geo_share"))
+
+    with g_tabs[1]:
+        st.markdown("#### World Map (All Channels)")
+        country_totals = g_df.groupby("Country", as_index=False)[metric_col].sum()
+        if not country_totals.empty:
+            fig = px.choropleth(
+                country_totals,
+                locations="Country",
+                locationmode="country names",
+                color=metric_col,
+                hover_name="Country",
+                title=f"{metric_label} by Country",
+            )
+            fig.update_layout(margin=dict(l=0, r=0, t=40, b=0))
+            fig = style_fig(fig, height=520)
+            st.plotly_chart(fig, use_container_width=True, key=pkey("geo_map_all"))
+        else:
+            st.info("No country data available for current filters.")
+
+    with g_tabs[2]:
+        st.markdown("#### Channel-Specific Map")
+        ch_pick = st.selectbox("Pick channel", options=sorted(g_df["Channel"].unique()), key="geo_ch_pick")
+        g2 = g_df[g_df["Channel"] == ch_pick].groupby("Country", as_index=False)[metric_col].sum()
+        if not g2.empty:
+            fig = px.choropleth(
+                g2,
+                locations="Country",
+                locationmode="country names",
+                color=metric_col,
+                hover_name="Country",
+                title=f"{metric_label} by Country – Channel: {ch_pick}",
+            )
+            fig = style_fig(fig, height=520)
+            st.plotly_chart(fig, use_container_width=True, key=pkey("geo_map_ch"))
+        else:
+            st.info("No data for that channel in current filters.")
+
+    with g_tabs[3]:
+        st.markdown("#### Country × Channel Heatmap (Top Countries)")
+        top_n = st.slider("Top N countries for heatmap", 3, 30, 12, key="geo_heat_top")
+        country_totals = g_df.groupby("Country")[metric_col].sum().sort_values(ascending=False)
+        top_idx = country_totals.head(top_n).index
+        df_top = g_df[g_df["Country"].isin(top_idx)]
+        pv = df_top.pivot_table(values=metric_col, index="Country", columns="Channel", aggfunc="sum", fill_value=0).round(0)
+
+        if not pv.empty:
+            hm = px.imshow(
+                pv,
+                labels=dict(x="Channel", y="Country", color=metric_label),
+                title=f"{metric_label} Heatmap – Country × Channel",
+                aspect="auto",
+            )
+            hm = style_fig(hm, height=520)
+            st.plotly_chart(hm, use_container_width=True, key=pkey("geo_hm"))
+        else:
+            st.info("Heatmap is empty for current settings.")
+
+    with g_tabs[4]:
+        st.markdown("#### Top Markets & Cities")
+        city_rev = g_df.groupby(["Country", "City"], as_index=False)[metric_col].sum().sort_values(metric_col, ascending=False).head(20)
+        fig = px.bar(
+            city_rev,
+            x=metric_col,
+            y="City",
+            color="Country",
+            orientation="h",
+            title=f"Top City Markets by {metric_label}",
+            text_auto=".2s",
+        )
+        fig.update_layout(xaxis_title=metric_label, yaxis_title="City")
+        fig = style_fig(fig, height=520)
+        st.plotly_chart(fig, use_container_width=True, key=pkey("geo_city"))
+
+    with g_tabs[5]:
+        cols = ["Sale ID", "Date", "Country", "City", "Channel", "Customer Type", metric_col, "Net Sales"]
+        cols = [c for c in cols if c in g_df.columns]
+        subset = g_df[cols].copy()
+        subset = subset.loc[:, ~subset.columns.duplicated()]
+        st.dataframe(subset.head(max_rows), use_container_width=True)
+        st.download_button(
+            "Download geography subset (CSV)",
+            data=subset.to_csv(index=False).encode("utf-8"),
+            file_name="geography_channels_subset.csv",
+            mime="text/csv",
+            key="dl_geo",
+        )
+
+# -----------------------------
+# TAB: Inventory Timing (new visuals)
+# -----------------------------
+with tab_timing:
+    st.subheader("Inventory Timing – Speed from Sale to Shipment")
+    t_df = f.dropna(subset=["Days to Ship"]).copy()
+
+    t_tabs = st.tabs(["SLA Snapshot", "Distributions", "By Channel (Advanced)", "Trend", "Data"])
+
+    if t_df.empty:
+        st.info("No valid Days to Ship data for the current filters.")
+    else:
+        with t_tabs[0]:
+            sla = st.slider("SLA target (days)", 1, 60, 7, key="sla_days")
+            within = (t_df["Days to Ship"] <= sla).mean()
+            avg_lag = t_df["Days to Ship"].mean()
+            p90 = t_df["Days to Ship"].quantile(0.90)
+            p95 = t_df["Days to Ship"].quantile(0.95)
+
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("SLA Hit Rate", f"{within*100:,.1f}%")
+            c2.metric("Avg Days to Ship", f"{avg_lag:,.1f}")
+            c3.metric("P90 Days", f"{p90:,.1f}")
+            c4.metric("P95 Days", f"{p95:,.1f}")
+
+            gauge = go.Figure(go.Indicator(
+                mode="gauge+number",
+                value=within * 100,
+                number={"suffix": "%"},
+                title={"text": f"Percent shipped within {sla} days"},
+                gauge={"axis": {"range": [0, 100]}}
+            ))
+            gauge.update_layout(height=320, margin=dict(l=10, r=10, t=60, b=10))
+            st.plotly_chart(gauge, use_container_width=True, key=pkey("tim_gauge"))
+
+        with t_tabs[1]:
+            fig = px.histogram(t_df, x="Days to Ship", nbins=40, title="Distribution of Days to Ship")
+            fig.update_layout(xaxis_title="Days to Ship", yaxis_title="Orders")
+            fig = style_fig(fig, height=430)
+            st.plotly_chart(fig, use_container_width=True, key=pkey("tim_hist"))
+
+            fig2 = px.box(t_df, x="Ownership", y="Days to Ship", points="all", title="Days to Ship by Ownership")
+            fig2 = style_fig(fig2, height=430)
+            st.plotly_chart(fig2, use_container_width=True, key=pkey("tim_own"))
+
+        with t_tabs[2]:
+            st.markdown("#### By Channel (two strong views)")
+            c1, c2 = st.columns(2)
+
+            with c1:
+                # Violin by channel
+                fig = px.violin(
+                    t_df,
+                    x="Channel",
+                    y="Days to Ship",
+                    box=True,
+                    points="all",
+                    title="Days to Ship by Channel (Violin)",
+                )
+                fig.update_layout(xaxis_title="Channel", yaxis_title="Days to Ship")
+                fig = style_fig(fig, height=470)
+                st.plotly_chart(fig, use_container_width=True, key=pkey("tim_violin_ch"))
+
+            with c2:
+                # Bucket distribution stacked bar
+                bins = [-np.inf, 3, 7, 14, 30, np.inf]
+                labels = ["0–3", "4–7", "8–14", "15–30", "31+"]
+                t_df["Ship Bucket"] = pd.cut(t_df["Days to Ship"], bins=bins, labels=labels)
+
+                dist = (
+                    t_df.groupby(["Channel", "Ship Bucket"], as_index=False)
+                    .size()
+                    .rename(columns={"size": "Orders"})
+                )
+                totals = dist.groupby("Channel", as_index=False)["Orders"].sum().rename(columns={"Orders": "Total"})
+                dist = dist.merge(totals, on="Channel", how="left")
+                dist["Share"] = np.where(dist["Total"] > 0, dist["Orders"] / dist["Total"], 0)
+
+                fig2 = px.bar(
+                    dist,
+                    x="Channel",
+                    y="Share",
+                    color="Ship Bucket",
+                    barmode="stack",
+                    title="Shipping Speed Mix by Channel (100% buckets)",
+                )
+                fig2.update_layout(yaxis_tickformat=".0%", xaxis_title="", yaxis_title="Share")
+                fig2 = style_fig(fig2, height=470)
+                st.plotly_chart(fig2, use_container_width=True, key=pkey("tim_bucket"))
+
+        with t_tabs[3]:
+            monthly_ship = t_df.groupby("Month", as_index=False)["Days to Ship"].mean().sort_values("Month")
+            fig = px.line(monthly_ship, x="Month", y="Days to Ship", markers=True, title="Average Days to Ship – Monthly Trend")
+            fig.update_layout(xaxis_title="Month", yaxis_title="Days to Ship")
+            fig = style_fig(fig, height=430)
+            st.plotly_chart(fig, use_container_width=True, key=pkey("tim_trend"))
+
+        with t_tabs[4]:
+            cols = ["Sale ID", "Date", "Country", "Channel", "Ownership", "Days to Ship", "Net Sales"]
+            cols = [c for c in cols if c in t_df.columns]
+            subset = t_df[cols].copy()
+            subset = subset.loc[:, ~subset.columns.duplicated()]
+            st.dataframe(subset.head(max_rows), use_container_width=True)
+            st.download_button(
+                "Download timing subset (CSV)",
+                data=subset.to_csv(index=False).encode("utf-8"),
+                file_name="inventory_timing_subset.csv",
+                mime="text/csv",
+                key="dl_timing",
+            )
+
+# -----------------------------
+# TAB: Ownership (upgrade)
+# -----------------------------
+with tab_ownership:
+    st.subheader("Ownership – Consigned vs Owned")
+    o_df = f.copy()
+    o_tabs = st.tabs(["Overview", "Value per Order", "Timing", "Data"])
+
+    with o_tabs[0]:
+        own_rev = o_df.groupby("Ownership", as_index=False)[metric_col].sum().sort_values(metric_col, ascending=False)
+        fig = px.bar(own_rev, x="Ownership", y=metric_col, title=f"{metric_label} by Ownership", text_auto=".2s")
+        fig.update_layout(xaxis_title="", yaxis_title=metric_label)
+        fig = style_fig(fig, height=420)
+        st.plotly_chart(fig, use_container_width=True, key=pkey("own_bar"))
+
+        own_cnt = o_df.groupby("Ownership", as_index=False)["OrderCount"].sum().rename(columns={"OrderCount": "Orders"})
+        fig2 = px.pie(own_cnt, names="Ownership", values="Orders", hole=0.35, title="Share of Orders – Consigned vs Owned")
+        fig2 = style_fig(fig2, height=420)
+        st.plotly_chart(fig2, use_container_width=True, key=pkey("own_pie"))
+
+    with o_tabs[1]:
+        stats = o_df.groupby("Ownership", as_index=False).agg(
+            Orders=("OrderCount", "sum"),
+            NetSales=("Net Sales", "sum"),
+        )
+        stats["NetSalesPerOrder"] = np.where(stats["Orders"] > 0, stats["NetSales"] / stats["Orders"], np.nan)
+        fig = px.bar(stats, x="Ownership", y="NetSalesPerOrder", title="Net Sales per Order by Ownership", text_auto=".0f")
+        fig.update_layout(yaxis_title="Net Sales / Order (CAD)", xaxis_title="")
+        fig = style_fig(fig, height=420)
+        st.plotly_chart(fig, use_container_width=True, key=pkey("own_value"))
+
+    with o_tabs[2]:
+        tdf = o_df.dropna(subset=["Days to Ship"]).copy()
+        if tdf.empty:
+            st.info("No valid Days to Ship data.")
+        else:
+            fig = px.violin(tdf, x="Ownership", y="Days to Ship", box=True, points="all", title="Days to Ship by Ownership (Violin)")
+            fig = style_fig(fig, height=430)
+            st.plotly_chart(fig, use_container_width=True, key=pkey("own_tim"))
+
+    with o_tabs[3]:
+        cols = ["Sale ID", "Date", "Country", "Channel", "Ownership", metric_col, "Net Sales"]
+        cols = [c for c in cols if c in o_df.columns]
+        subset = o_df[cols].copy()
+        subset = subset.loc[:, ~subset.columns.duplicated()]
+        st.dataframe(subset.head(max_rows), use_container_width=True)
+        st.download_button(
+            "Download ownership subset (CSV)",
+            data=subset.to_csv(index=False).encode("utf-8"),
+            file_name="ownership_subset.csv",
+            mime="text/csv",
+            key="dl_own",
+        )
+
+# -----------------------------
+# TAB: Seasonality (upgrade)
+# -----------------------------
+with tab_seasonality:
+    st.subheader("Seasonality – Time Patterns in Sales")
+    se_df = f.copy()
+
+    se_tabs = st.tabs(["Monthly Trend", "Month × Channel", "Year × Month Heatmap", "Day-of-week", "Data"])
+
+    with se_tabs[0]:
+        monthly = se_df.groupby("Month", as_index=False)[metric_col].sum().sort_values("Month")
+        fig = px.line(monthly, x="Month", y=metric_col, markers=True, title=f"Monthly {metric_label}")
+        fig.update_layout(xaxis_title="Month", yaxis_title=metric_label)
+        fig = style_fig(fig, height=430)
+        st.plotly_chart(fig, use_container_width=True, key=pkey("sea_month"))
+
+        quarter = se_df.groupby("Quarter", as_index=False)[metric_col].sum().sort_values("Quarter")
+        fig2 = px.bar(quarter, x="Quarter", y=metric_col, title=f"{metric_label} by Quarter", text_auto=".2s")
+        fig2.update_layout(xaxis_title="Quarter", yaxis_title=metric_label)
+        fig2 = style_fig(fig2, height=430)
+        st.plotly_chart(fig2, use_container_width=True, key=pkey("sea_q"))
+
+    with se_tabs[1]:
+        month_channel = se_df.pivot_table(index="Month Name", columns="Channel", values=metric_col, aggfunc="sum").fillna(0)
+        month_order = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+        month_channel = month_channel.reindex([m for m in month_order if m in month_channel.index])
+        if not month_channel.empty:
+            hm = px.imshow(
+                month_channel,
+                labels=dict(x="Channel", y="Month", color=metric_label),
+                title=f"Seasonality Heatmap – Month × Channel ({metric_label})",
+                aspect="auto",
+            )
+            hm = style_fig(hm, height=480)
+            st.plotly_chart(hm, use_container_width=True, key=pkey("sea_hm_mc"))
+        else:
+            st.info("No data to display for Month × Channel.")
+
+    with se_tabs[2]:
+        # Year x Month heatmap
+        ym = se_df.copy()
+        ym["MonthShort"] = ym["Date"].dt.strftime("%b")
+        pv = ym.pivot_table(index="Year", columns="MonthShort", values=metric_col, aggfunc="sum").fillna(0)
+        pv = pv.reindex(columns=[m for m in ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"] if m in pv.columns])
+        if not pv.empty and pv.shape[0] >= 1:
+            hm = px.imshow(
+                pv.round(0),
+                aspect="auto",
+                title=f"{metric_label} Heatmap – Year × Month",
+                labels=dict(x="Month", y="Year", color=metric_label),
+            )
+            hm = style_fig(hm, height=450)
+            st.plotly_chart(hm, use_container_width=True, key=pkey("sea_hm_ym"))
+        else:
+            st.info("Not enough data for Year × Month heatmap.")
+
+    with se_tabs[3]:
+        dow = se_df.groupby("Day Name", as_index=False)[metric_col].sum()
+        dow_order = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
+        dow["Day Name"] = pd.Categorical(dow["Day Name"], categories=dow_order, ordered=True)
+        dow = dow.sort_values("Day Name")
+        fig = px.bar(dow, x="Day Name", y=metric_col, title=f"{metric_label} by Day of Week", text_auto=".2s")
+        fig.update_layout(xaxis_title="Day of Week", yaxis_title=metric_label)
+        fig = style_fig(fig, height=430)
+        st.plotly_chart(fig, use_container_width=True, key=pkey("sea_dow"))
+
+    with se_tabs[4]:
+        cols = ["Sale ID", "Date", "Country", "Channel", "Month", "Quarter", "Day Name", metric_col, "Net Sales"]
+        cols = [c for c in cols if c in se_df.columns]
+        subset = se_df[cols].copy()
+        subset = subset.loc[:, ~subset.columns.duplicated()]
+        st.dataframe(subset.head(max_rows), use_container_width=True)
+        st.download_button(
+            "Download seasonality subset (CSV)",
+            data=subset.to_csv(index=False).encode("utf-8"),
+            file_name="seasonality_subset.csv",
+            mime="text/csv",
+            key="dl_season",
+        )
+
+# -----------------------------
+# TAB: Compliance (upgrade)
+# -----------------------------
+with tab_compliance:
+    st.subheader("Compliance – COA & Export Permits")
+    c_df = f.copy()
+
+    c_tabs = st.tabs(["COA Coverage", "Export Permits", "Country Risk Bubble", "Data"])
+
+    with c_tabs[0]:
+        coa_counts = c_df.groupby("Has COA", as_index=False)["OrderCount"].sum().rename(columns={"OrderCount": "Count"})
+        coa_counts["Status"] = coa_counts["Has COA"].map({True: "Has COA", False: "Missing COA"})
+
+        fig = px.pie(coa_counts, names="Status", values="Count", title="COA Coverage – All Orders", hole=0.35)
+        fig = style_fig(fig, height=430)
+        st.plotly_chart(fig, use_container_width=True, key=pkey("coa_pie"))
+
+        coa_country = (
+            c_df.groupby("Country", as_index=False)["Has COA"].mean()
+            .rename(columns={"Has COA": "COA Rate"})
+            .sort_values("COA Rate", ascending=False)
+            .head(12)
+        )
+        fig2 = px.bar(coa_country, x="Country", y="COA Rate", title="Top Countries – COA Coverage Rate", text_auto=".0%")
+        fig2.update_layout(yaxis_tickformat=".0%")
+        fig2 = style_fig(fig2, height=430)
+        st.plotly_chart(fig2, use_container_width=True, key=pkey("coa_rate"))
+
+    with c_tabs[1]:
+        export_df = c_df[c_df["Is Export"]].copy()
+        if export_df.empty:
+            st.info("No export shipments in the current filters.")
+        else:
+            permit_counts = export_df.groupby("Has Export Permit", as_index=False)["OrderCount"].sum().rename(columns={"OrderCount": "Count"})
+            permit_counts["Status"] = permit_counts["Has Export Permit"].map({True: "Compliant (Has Permit)", False: "Missing Permit"})
+            fig = px.bar(permit_counts, x="Status", y="Count", title="Export Orders – Permit Status", text_auto=True)
+            fig.update_layout(xaxis_title="", yaxis_title="Orders")
+            fig = style_fig(fig, height=420)
+            st.plotly_chart(fig, use_container_width=True, key=pkey("perm_bar"))
+
+            missing = export_df[~export_df["Has Export Permit"]]
+            if not missing.empty:
+                miss_by_country = (
+                    missing.groupby("Country", as_index=False)["OrderCount"].sum()
+                    .rename(columns={"OrderCount": "Missing Permit Orders"})
+                    .sort_values("Missing Permit Orders", ascending=False)
+                )
+                st.markdown("#### Missing Permits by Country")
+                st.dataframe(miss_by_country, use_container_width=True)
+            else:
+                st.success("All export orders have permits recorded in this view.")
+
+    with c_tabs[2]:
+        export_df = c_df[c_df["Is Export"]].copy()
+        if export_df.empty:
+            st.info("No export shipments in the current filters.")
+        else:
+            risk = (
+                export_df.groupby("Country", as_index=False)
+                .agg(
+                    ExportOrders=("OrderCount", "sum"),
+                    MissingRate=("Has Export Permit", lambda s: 1 - float(s.mean()) if len(s) else 0),
+                    ExportNetSales=("Net Sales", "sum"),
+                )
+            )
+            risk = risk[risk["ExportOrders"] > 0].copy()
+            fig = px.scatter(
+                risk,
+                x="ExportOrders",
+                y="MissingRate",
+                size="ExportNetSales",
+                hover_name="Country",
+                title="Country Risk Bubble (exports)",
+            )
+            fig.update_layout(xaxis_title="Export Orders", yaxis_title="Missing Permit Rate", yaxis_tickformat=".0%")
+            fig = style_fig(fig, height=480)
+            st.plotly_chart(fig, use_container_width=True, key=pkey("risk_bubble"))
+
+    with c_tabs[3]:
+        cols = ["Sale ID", "Date", "Country", "Channel", "Is Export", "Has COA", "Has Export Permit", metric_col, "Net Sales"]
+        cols = [c for c in cols if c in c_df.columns]
+        subset = c_df[cols].copy()
+        subset = subset.loc[:, ~subset.columns.duplicated()]
+        st.dataframe(subset.head(max_rows), use_container_width=True)
+        st.download_button(
+            "Download compliance subset (CSV)",
+            data=subset.to_csv(index=False).encode("utf-8"),
+            file_name="compliance_subset.csv",
+            mime="text/csv",
+            key="dl_comp",
+        )
+
+# -----------------------------
+# TAB: All Data
+# -----------------------------
+with tab_data:
+    st.subheader("All Filtered Data")
+    st.markdown("Full dataset after applying filters. Download for extra analysis if you need.")
+
+    subset = f.copy()
+    subset = subset.loc[:, ~subset.columns.duplicated()]
+    st.dataframe(subset.head(max_rows), use_container_width=True)
+
+    st.download_button(
+        "Download filtered dataset (CSV)",
+        data=subset.to_csv(index=False).encode("utf-8"),
+        file_name="ammolite_filtered_full.csv",
+        mime="text/csv",
+        key="dl_all",
+    )
