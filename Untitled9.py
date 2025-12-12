@@ -6,8 +6,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 from itertools import count
 
-# Global counter to give unique keys to every chart
 _plot_counter = count()
+
 
 # -----------------------------
 # Page Config & Styling
@@ -415,7 +415,7 @@ with tab_overview:
 with tab_price:
     st.subheader("Price Drivers – Grade, Colour, Size")
 
-    p_tabs = st.tabs(["Overview", "Distributions", "Heatmaps", "Colour & Size vs Price", "Data"])
+    p_tabs = st.tabs(["Overview", "Distributions", "Heatmaps", "Scatter & Density", "Data"])
     p_df = f.copy()
 
     with p_tabs[0]:
@@ -477,145 +477,88 @@ with tab_price:
             x="Net Sales",
             nbins=40,
             color="Grade",
-            title="Histogram of Net Sales (coloured by Grade)",
+            title="Histogram of Net Sales (colored by Grade)",
         )
         hist.update_layout(xaxis_title="Net Sales (CAD)", yaxis_title="Order Count")
         hist = style_fig(hist)
         st.plotly_chart(hist, use_container_width=True, key=f"plot_{next(_plot_counter)}")
 
     with p_tabs[2]:
-        st.markdown("#### Heatmaps for Grade × Colour Count")
-
-        # --- Heatmap 1: Avg Net Sales by Grade × Colour Count ---
-        if "Color Count (#)" in p_df.columns:
-            price_grid = (
-                p_df.pivot_table(
-                    index="Grade",
-                    columns="Color Count (#)",
-                    values="Net Sales",
-                    aggfunc="mean",
-                )
-                .round(0)
+        st.markdown("#### Heatmaps for Grade & Finish")
+        price_grid = (
+            p_df.pivot_table(
+                index="Grade",
+                columns="Finish",
+                values="Net Sales",
+                aggfunc="mean",
             )
+            .fillna(0)
+            .round(0)
+        )
+        if not price_grid.empty:
+            hm = px.imshow(
+                price_grid,
+                labels=dict(x="Finish", y="Grade", color="Avg Net Sales (CAD)"),
+                title="Average Net Sales by Grade × Finish",
+                aspect="auto",
+            )
+            hm = style_fig(hm, height=450)
+            st.plotly_chart(hm, use_container_width=True, key=f"plot_{next(_plot_counter)}")
 
-            if not price_grid.empty:
-                hm = px.imshow(
-                    price_grid,
-                    labels=dict(
-                        x="Colour Count (#)",
-                        y="Grade",
-                        color="Avg Net Sales (CAD)",
-                    ),
-                    title="Average Net Sales by Grade × Colour Count",
-                    aspect="auto",
-                )
-                hm = style_fig(hm, height=450)
-                st.plotly_chart(
-                    hm,
-                    use_container_width=True,
-                    key=f"plot_{next(_plot_counter)}",
-                )
-            else:
-                st.info("No data available for Grade × Colour Count heatmap.")
-        else:
-            st.info("No 'Color Count (#)' field available for heatmap.")
-
-        # --- Heatmap 2: Price Density (CAD/mm²) by Grade × Colour Count ---
-        if "Color Count (#)" in p_df.columns and p_df["Price per mm²"].notna().any():
+        if p_df["Price per mm²"].notna().any():
             ppm_grid = (
                 p_df.dropna(subset=["Price per mm²"])
                 .pivot_table(
                     index="Grade",
-                    columns="Color Count (#)",
+                    columns="Finish",
                     values="Price per mm²",
                     aggfunc="mean",
                 )
                 .round(2)
             )
-
             if not ppm_grid.empty:
                 hm2 = px.imshow(
                     ppm_grid,
-                    labels=dict(
-                        x="Colour Count (#)",
-                        y="Grade",
-                        color="Avg Price per mm²",
-                    ),
-                    title="Price Density by Grade × Colour Count (CAD/mm²)",
+                    labels=dict(x="Finish", y="Grade", color="Avg Price per mm²"),
+                    title="Price Density by Grade × Finish (CAD/mm²)",
                     aspect="auto",
                 )
                 hm2 = style_fig(hm2, height=450)
-                st.plotly_chart(
-                    hm2,
-                    use_container_width=True,
-                    key=f"plot_{next(_plot_counter)}",
-                )
+                st.plotly_chart(hm2, use_container_width=True, key=f"plot_{next(_plot_counter)}")
 
     with p_tabs[3]:
-        st.markdown("#### Colour & Size vs Price (Alternative Views)")
+        st.markdown("#### Colour & Size vs Price")
+        sc1 = px.scatter(
+            p_df,
+            x="Color Count (#)",
+            y="Net Sales",
+            color="Finish",
+            size="weight",
+            hover_data=["Grade", "Product Type", "Country"],
+            title="Net Sales vs Colour Count (by Finish & Weight)",
+        )
+        sc1.update_layout(
+            xaxis_title="Colour Count (#)",
+            yaxis_title="Net Sales (CAD)",
+        )
+        sc1 = style_fig(sc1, height=450)
+        st.plotly_chart(sc1, use_container_width=True, key=f"plot_{next(_plot_counter)}")
 
-        # ---- Colour Count vs Price (bar) ----
-        if "Color Count (#)" in p_df.columns:
-            cc_stats = (
-                p_df.groupby("Color Count (#)", as_index=False)["Net Sales"]
-                .mean()
-                .sort_values("Color Count (#)")
-            )
-            fig_cs1 = px.bar(
-                cc_stats,
-                x="Color Count (#)",
+        if p_df["Area (mm²)"].notna().any():
+            sc2 = px.scatter(
+                p_df.dropna(subset=["Area (mm²)"]),
+                x="Area (mm²)",
                 y="Net Sales",
-                title="Average Net Sales by Colour Count",
-                text_auto=".0f",
+                color="Grade",
+                title="Net Sales vs Area (mm²) by Grade",
+                hover_data=["Finish", "Country"],
             )
-            fig_cs1.update_layout(
-                xaxis_title="Colour Count (#)",
-                yaxis_title="Avg Net Sales (CAD)",
+            sc2.update_layout(
+                xaxis_title="Area (mm²)",
+                yaxis_title="Net Sales (CAD)",
             )
-            fig_cs1 = style_fig(fig_cs1, height=430)
-            st.plotly_chart(
-                fig_cs1,
-                use_container_width=True,
-                key=f"plot_{next(_plot_counter)}",
-            )
-        else:
-            st.info("No 'Color Count (#)' field available for this view.")
-
-        # ---- Size vs Price (size buckets) ----
-        if "Area (mm²)" in p_df.columns and p_df["Area (mm²)"].notna().sum() > 1:
-            valid = p_df["Area (mm²)"].dropna()
-            bins = np.linspace(valid.min(), valid.max(), 5)
-            if len(np.unique(bins)) > 1:
-                p_df.loc[valid.index, "Size Bucket"] = pd.cut(
-                    valid, bins=bins, include_lowest=True
-                )
-                size_stats = (
-                    p_df.dropna(subset=["Size Bucket"])
-                    .groupby("Size Bucket", as_index=False)["Net Sales"]
-                    .mean()
-                )
-                size_stats = size_stats.sort_values("Size Bucket")
-                fig_cs2 = px.bar(
-                    size_stats,
-                    x="Size Bucket",
-                    y="Net Sales",
-                    title="Average Net Sales by Size Bucket (Area)",
-                    text_auto=".0f",
-                )
-                fig_cs2.update_layout(
-                    xaxis_title="Size Bucket (by Area)",
-                    yaxis_title="Avg Net Sales (CAD)",
-                )
-                fig_cs2 = style_fig(fig_cs2, height=430)
-                st.plotly_chart(
-                    fig_cs2,
-                    use_container_width=True,
-                    key=f"plot_{next(_plot_counter)}",
-                )
-            else:
-                st.info("Area values do not vary enough to form size buckets.")
-        else:
-            st.info("No valid area data to build size buckets.")
+            sc2 = style_fig(sc2, height=450)
+            st.plotly_chart(sc2, use_container_width=True, key=f"plot_{next(_plot_counter)}")
 
     with p_tabs[4]:
         st.markdown("#### Raw Data – Price Drivers")
@@ -1025,50 +968,27 @@ with tab_timing:
             st.plotly_chart(hist, use_container_width=True, key=f"plot_{next(_plot_counter)}")
 
         with t_tabs[2]:
-            st.markdown("#### Days to Ship by Channel")
-
-            # Average days to ship by channel
-            avg_channel = (
-                t_df.groupby("Channel", as_index=False)["Days to Ship"]
-                .mean()
-                .sort_values("Days to Ship")
-            )
-            fig = px.bar(
-                avg_channel,
+            box = px.box(
+                t_df,
                 x="Channel",
                 y="Days to Ship",
-                title="Average Days to Ship by Channel",
-                text_auto=".1f",
+                title="Days to Ship by Channel",
+                points="all",
             )
-            fig.update_layout(xaxis_title="Channel", yaxis_title="Avg Days to Ship")
-            fig = style_fig(fig, height=430)
-            st.plotly_chart(
-                fig,
-                use_container_width=True,
-                key=f"plot_{next(_plot_counter)}",
-            )
+            box.update_layout(xaxis_title="Channel", yaxis_title="Days to Ship")
+            box = style_fig(box, height=430)
+            st.plotly_chart(box, use_container_width=True, key=f"plot_{next(_plot_counter)}")
 
-            # Order volume by channel (context)
-            vol_channel = (
-                t_df.groupby("Channel", as_index=False)["Sale ID"]
-                .count()
-                .rename(columns={"Sale ID": "Order Count"})
-                .sort_values("Order Count", ascending=False)
+            box2 = px.box(
+                t_df,
+                x="Ownership",
+                y="Days to Ship",
+                title="Days to Ship by Ownership Type",
+                points="all",
             )
-            fig2 = px.bar(
-                vol_channel,
-                x="Channel",
-                y="Order Count",
-                title="Order Volume by Channel (Shipping Timing Context)",
-                text_auto=True,
-            )
-            fig2.update_layout(xaxis_title="Channel", yaxis_title="Order Count")
-            fig2 = style_fig(fig2, height=430)
-            st.plotly_chart(
-                fig2,
-                use_container_width=True,
-                key=f"plot_{next(_plot_counter)}",
-            )
+            box2.update_layout(xaxis_title="Ownership", yaxis_title="Days to Ship")
+            box2 = style_fig(box2, height=430)
+            st.plotly_chart(box2, use_container_width=True, key=f"plot_{next(_plot_counter)}")
 
         with t_tabs[3]:
             monthly_ship = (
@@ -1150,12 +1070,12 @@ with tab_ownership:
         st.plotly_chart(fig2, use_container_width=True, key=f"plot_{next(_plot_counter)}")
 
     with o_tabs[1]:
-        t_df2 = o_df.dropna(subset=["Days to Ship"]).copy()
-        if t_df2.empty:
+        t_df = o_df.dropna(subset=["Days to Ship"]).copy()
+        if t_df.empty:
             st.info("No valid Days to Ship data.")
         else:
             fig3 = px.box(
-                t_df2,
+                t_df,
                 x="Ownership",
                 y="Days to Ship",
                 title="Days to Ship by Ownership",
