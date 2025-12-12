@@ -191,16 +191,14 @@ def style_fig(fig, height=430):
     fig.update_layout(
         height=height,
         margin=dict(l=10, r=10, t=55, b=40),
-        paper_bgcolor="#FFFFFF",   # ✅ white
-        plot_bgcolor="#FFFFFF",    # ✅ white
-        font=dict(family="SpaceGrotesk", size=12, color="#000000"),  # ✅ black
+        paper_bgcolor="#FFFFFF",   # white chart background
+        plot_bgcolor="#FFFFFF",    # white plotting area
+        font=dict(family="SpaceGrotesk", size=12, color="#000000"),  # black text
         legend=dict(
             font=dict(size=11, family="SpaceGrotesk", color="#000000"),
             orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="left",
-            x=0,
+            yanchor="bottom", y=1.02,
+            xanchor="left", x=0,
         ),
         hoverlabel=dict(font_size=11, font_family="SpaceGrotesk"),
         xaxis=dict(
@@ -214,13 +212,22 @@ def style_fig(fig, height=430):
             automargin=True,
         ),
     )
-    # keep geo backgrounds white if figure uses geo
+
+    # keep geo backgrounds white when a map is used
     try:
         fig.update_geos(bgcolor="#FFFFFF")
     except Exception:
         pass
 
-    fig.update_traces(hovertemplate=None)
+    # ✅ Safe: only set hovertemplate on traces that actually have it
+    def _safe_unset_hovertemplate(tr):
+        try:
+            if "hovertemplate" in tr.to_plotly_json():
+                tr.update(hovertemplate=None)
+        except Exception:
+            pass
+
+    fig.for_each_trace(_safe_unset_hovertemplate)
     return fig
 
 
