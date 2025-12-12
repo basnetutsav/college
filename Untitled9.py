@@ -34,126 +34,139 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ✅ ONLY CHANGES:
-# 1) Main-page font color = BLACK on white background
-# 2) All charts: WHITE background + BLACK text
 st.markdown(
     """
     <style>
-    :root {
-        --app-font: "SpaceGrotesk", sans-serif;
-        --heading-font: "SpaceGroteskHeader", "SpaceGrotesk", sans-serif;
-        --code-font: "SpaceMono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-
-        --primary: #000000;
-        --bg: #FFFFFF;
-        --bg2: #F5F5F5;
-        --text: #000000; /* ✅ black */
-        --border: #E6E6E6;
-
-        --sb-bg: #0B0B0B;
-        --sb-bg2: #111111;
-        --sb-text: #FFFFFF;
-        --sb-border: #1C1C1C;
-
-        --radius: 0.35rem;
+    :root{
+      --bg: #FFFFFF;
+      --text: #000000;
+      --border: #D9D9D9;
+      --soft: #F5F5F5;
     }
 
+    /* App background + default text */
     html, body, [class*="css"] {
-        font-family: var(--app-font) !important;
-        font-size: 0.95rem !important;
-        color: var(--text) !important; /* ✅ black on main page */
+      font-size: 0.95rem !important;
+      background: var(--bg) !important;
+      color: var(--text) !important;
+      font-family: SpaceGrotesk, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif !important;
     }
 
-    /* App background */
-    div[data-testid="stAppViewContainer"] { background: var(--bg); }
-    div[data-testid="stHeader"] { background: rgba(255,255,255,0); }
+    .block-container {
+      padding-top: 0.8rem;
+      padding-bottom: 2.0rem;
+      max-width: 1550px;
+      background: var(--bg) !important;
+      color: var(--text) !important;
+    }
 
-    .block-container { padding-top: 0.8rem; padding-bottom: 2.0rem; max-width: 1550px; color: var(--text) !important; }
     div[data-testid="column"] { padding-left: 0.40rem; padding-right: 0.40rem; }
 
-    /* Force main-content text to black (keeps sidebar unaffected) */
-    .block-container p,
-    .block-container span,
-    .block-container div,
-    .block-container label,
-    .block-container li,
-    .block-container small,
-    .block-container a {
-        color: var(--text) !important;
+    /* Sidebar: force white background + black text */
+    section[data-testid="stSidebar"] {
+      background: var(--bg) !important;
+      color: var(--text) !important;
+      border-right: 1px solid var(--border) !important;
+    }
+    section[data-testid="stSidebar"] * {
+      color: var(--text) !important;
     }
 
-    /* Headings */
-    h1, h2, h3, h4, h5, h6,
-    .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4 {
-        font-family: var(--heading-font) !important;
-        letter-spacing: 0.06em;
-        color: var(--text) !important;
+    /* Metric cards (keep your sizing) */
+    [data-testid="metric-container"] {
+      padding: 0.70rem 0.85rem !important;
+      border-radius: 14px !important;
+      background: var(--bg) !important;
+      border: 1px solid var(--border) !important;
+    }
+    [data-testid="metric-container"] [data-testid="stMetricValue"] {
+      font-size: 1.55rem !important;
+      overflow: visible !important;
+      text-overflow: clip !important;
+      white-space: normal !important;
+      line-height: 1.2 !important;
+      color: var(--text) !important;
     }
 
     /* Tabs */
     .stTabs [data-baseweb="tab"] {
-        font-size: 0.95rem;
-        font-family: var(--heading-font) !important;
-        letter-spacing: 0.10em;
-        text-transform: uppercase;
-        color: var(--text) !important;
+      font-size: 0.95rem;
+      color: var(--text) !important;
     }
 
-    /* Metric cards */
-    [data-testid="metric-container"] { padding: 0.70rem 0.85rem !important; border-radius: 14px !important; border: 1px solid var(--border) !important; background: var(--bg2) !important; }
-    [data-testid="metric-container"] [data-testid="stMetricValue"] {
-        font-size: 1.55rem !important;
-        overflow: visible !important;
-        text-overflow: clip !important;
-        white-space: normal !important;
-        line-height: 1.2 !important;
-        font-family: var(--heading-font) !important;
-        letter-spacing: 0.02em;
-        color: var(--text) !important;
+    /* Headings */
+    h1,h2,h3,h4,h5,h6,
+    .stMarkdown h1,.stMarkdown h2,.stMarkdown h3,.stMarkdown h4 {
+      color: var(--text) !important;
+      font-family: SpaceGroteskHeader, SpaceGrotesk, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif !important;
     }
 
-    /* Buttons (keep white text on black button) */
-    .stButton > button {
-        background: var(--primary) !important;
-        color: #FFFFFF !important;
-        border: 1px solid var(--primary) !important;
-        border-radius: var(--radius) !important;
-    }
-    .stButton > button:hover { filter: brightness(0.92); }
-    .stButton > button * { color: #FFFFFF !important; }
+    /* -----------------------------
+       ✅ INPUTS: WHITE BACKGROUND + BLACK TEXT (everywhere)
+       (selectbox / multiselect / text input / textarea / date input / number input)
+    ------------------------------ */
 
-    /* Inputs */
+    /* Input shells */
+    div[data-baseweb="select"] > div,
     div[data-baseweb="input"] input,
-    div[data-baseweb="textarea"] textarea,
-    div[data-baseweb="select"] > div {
-        border-radius: var(--radius) !important;
-        border-color: var(--border) !important;
-        color: var(--text) !important;
+    div[data-baseweb="textarea"] textarea {
+      background: #FFFFFF !important;
+      color: #000000 !important;
+      border: 1px solid var(--border) !important;
+      border-radius: 10px !important;
     }
 
-    /* Code */
-    code, pre, kbd, samp { font-family: var(--code-font) !important; }
-    pre { background: #F2F2F2 !important; border-radius: var(--radius) !important; }
-
-    /* Sidebar theme */
-    section[data-testid="stSidebar"] { background: var(--sb-bg) !important; border-right: 1px solid var(--sb-border) !important; }
-    section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"],
-    section[data-testid="stSidebar"] label,
-    section[data-testid="stSidebar"] span,
-    section[data-testid="stSidebar"] p,
-    section[data-testid="stSidebar"] div {
-        color: var(--sb-text) !important;
+    /* Text inside selects */
+    div[data-baseweb="select"] span {
+      color: #000000 !important;
     }
-    section[data-testid="stSidebar"] a { color: var(--sb-text) !important; }
 
-    section[data-testid="stSidebar"] div[data-baseweb="select"] > div,
-    section[data-testid="stSidebar"] div[data-baseweb="input"] input,
-    section[data-testid="stSidebar"] div[data-baseweb="textarea"] textarea {
-        background: var(--sb-bg2) !important;
-        border-color: var(--sb-border) !important;
-        color: var(--sb-text) !important;
+    /* Dropdown popovers (opened menu) */
+    div[data-baseweb="popover"] *,
+    ul[role="listbox"],
+    li[role="option"] {
+      background: #FFFFFF !important;
+      color: #000000 !important;
     }
+
+    li[role="option"]:hover {
+      background: var(--soft) !important;
+    }
+
+    /* Multiselect tags */
+    .stMultiSelect span[data-baseweb="tag"] {
+      background: var(--soft) !important;
+      color: #000000 !important;
+      border: 1px solid var(--border) !important;
+    }
+    .stMultiSelect span[data-baseweb="tag"] svg {
+      fill: #000000 !important;
+    }
+
+    /* Date / Number inputs sometimes use these wrappers */
+    div[data-testid="stDateInput"] input,
+    div[data-testid="stNumberInput"] input {
+      background: #FFFFFF !important;
+      color: #000000 !important;
+      border: 1px solid var(--border) !important;
+      border-radius: 10px !important;
+    }
+
+    /* Sliders: make text readable */
+    .stSlider * { color: var(--text) !important; }
+
+    /* Buttons: keep readable on white */
+    .stButton > button {
+      background: #FFFFFF !important;
+      color: #000000 !important;
+      border: 1px solid #000000 !important;
+      border-radius: 10px !important;
+    }
+    .stButton > button:hover { background: var(--soft) !important; }
+    .stButton > button * { color: #000000 !important; }
+
+    /* Dataframes background */
+    .stDataFrame, .stTable { background: #FFFFFF !important; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -186,14 +199,14 @@ def to_num(df: pd.DataFrame, col: str):
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
 
-# ✅ ONLY CHANGE INSIDE HERE: white backgrounds + black chart text
 def style_fig(fig, height=430):
+    # ✅ White chart background + black text (and no hovertemplate crash)
     fig.update_layout(
         height=height,
         margin=dict(l=10, r=10, t=55, b=40),
-        paper_bgcolor="#FFFFFF",   # white chart background
-        plot_bgcolor="#FFFFFF",    # white plotting area
-        font=dict(family="SpaceGrotesk", size=12, color="#000000"),  # black text
+        paper_bgcolor="#FFFFFF",
+        plot_bgcolor="#FFFFFF",
+        font=dict(family="SpaceGrotesk", size=12, color="#000000"),
         legend=dict(
             font=dict(size=11, family="SpaceGrotesk", color="#000000"),
             orientation="h",
@@ -213,13 +226,13 @@ def style_fig(fig, height=430):
         ),
     )
 
-    # keep geo backgrounds white when a map is used
+    # maps
     try:
         fig.update_geos(bgcolor="#FFFFFF")
     except Exception:
         pass
 
-    # ✅ Safe: only set hovertemplate on traces that actually have it
+    # Safe hovertemplate reset (some trace types don't support it)
     def _safe_unset_hovertemplate(tr):
         try:
             if "hovertemplate" in tr.to_plotly_json():
@@ -292,10 +305,8 @@ def load_data(uploaded_file=None):
         df["Shipped Date"] = pd.NaT
 
     # 6) Numeric conversions (safe)
-    for c in [
-        "Price (CAD)", "Discount (CAD)", "Shipping (CAD)", "Taxes Collected (CAD)",
-        "length", "width", "weight", "Color Count (#)"
-    ]:
+    for c in ["Price (CAD)", "Discount (CAD)", "Shipping (CAD)", "Taxes Collected (CAD)",
+              "length", "width", "weight", "Color Count (#)"]:
         to_num(df, c)
 
     # Fill core monetary columns if missing
@@ -432,6 +443,7 @@ with st.sidebar.expander("More filters (optional)", expanded=False):
     only_consigned = st.checkbox("Consigned only", value=False, key="only_consigned")
 
     name_search = st.text_input("Customer name contains", value="", key="cust_search")
+
     max_rows = st.slider("Max rows to show in tables", 100, 3000, 500, step=100, key="max_rows")
 
 metric_map = {
@@ -713,6 +725,7 @@ with tab_overview:
         fig = style_fig(fig, height=380)
         st.plotly_chart(fig, use_container_width=True, key=pkey("ov_seg"))
 
+    # Auto insights
     top_country = by_country["Country"].iloc[0] if not by_country.empty else "N/A"
     top_channel = by_channel["Channel"].iloc[0] if not by_channel.empty else "N/A"
     share_top = float(by_country[metric_col].iloc[0] / by_country[metric_col].sum()) if by_country[metric_col].sum() > 0 else np.nan
@@ -735,6 +748,7 @@ with tab_price:
     st.subheader("Price Drivers – Grade, Colour, Size")
 
     p_df = f.copy()
+
     p_tabs = st.tabs(["Driver Explorer", "Distributions", "Heatmaps", "Correlations", "Data"])
 
     # --- Driver Explorer
@@ -874,28 +888,24 @@ with tab_price:
     # --- Correlations
     with p_tabs[3]:
         st.markdown("#### Correlation (numeric drivers ↔ pricing)")
-        num_candidates = [
-            c for c in [
-                "Net Sales", "Total Collected", "Discount (CAD)", "Shipping (CAD)", "Taxes Collected (CAD)",
-                "Color Count (#)", "length", "width", "weight", "Area (mm²)", "Price per mm²", "Days to Ship"
-            ] if safe_col(p_df, c)
-        ]
-        tmp = p_df[num_candidates].copy().apply(pd.to_numeric, errors="coerce")
+        num_candidates = [c for c in ["Net Sales", "Total Collected", "Discount (CAD)", "Shipping (CAD)",
+                                     "Taxes Collected (CAD)", "Color Count (#)", "length", "width", "weight",
+                                     "Area (mm²)", "Price per mm²", "Days to Ship"] if safe_col(p_df, c)]
+        tmp = p_df[num_candidates].copy()
+        tmp = tmp.apply(pd.to_numeric, errors="coerce")
         corr = tmp.corr(numeric_only=True)
 
         if corr.shape[0] >= 2:
-            fig = px.imshow(corr.round(2), aspect="auto", title="Correlation Heatmap (numeric columns)")
+            fig = px.imshow(
+                corr.round(2),
+                aspect="auto",
+                title="Correlation Heatmap (numeric columns)",
+            )
             fig = style_fig(fig, height=520)
             st.plotly_chart(fig, use_container_width=True, key=pkey("pd_corr"))
 
             if "Net Sales" in corr.columns:
-                drivers = (
-                    corr["Net Sales"]
-                    .drop(labels=["Net Sales"])
-                    .dropna()
-                    .sort_values(key=lambda s: s.abs(), ascending=False)
-                    .head(8)
-                )
+                drivers = corr["Net Sales"].drop(labels=["Net Sales"]).dropna().sort_values(key=lambda s: s.abs(), ascending=False).head(8)
                 ddf = drivers.reset_index()
                 ddf.columns = ["Driver", "Correlation"]
                 fig2 = px.bar(ddf, x="Correlation", y="Driver", orientation="h", title="Top Numeric Correlations vs Net Sales")
@@ -924,13 +934,13 @@ with tab_price:
             key="dl_price",
         )
 
-
 # -----------------------------
 # TAB: Product Mix (more advanced)
 # -----------------------------
 with tab_mix:
     st.subheader("Product Mix – Revenue, Volume, and Structure")
     m_df = f.copy()
+
     m_tabs = st.tabs(["Overview", "Channel Mix (100%)", "Structure (Sunburst)", "Sankey", "Data"])
 
     with m_tabs[0]:
@@ -1001,9 +1011,10 @@ with tab_mix:
             tgt = [idx[x] for x in a["Product Type"]] + [idx[x] for x in b["Grade"]]
             val = a[metric_col].tolist() + b[metric_col].tolist()
 
-            fig = go.Figure(
-                data=[go.Sankey(node=dict(label=labels, pad=14, thickness=14), link=dict(source=src, target=tgt, value=val))]
-            )
+            fig = go.Figure(data=[go.Sankey(
+                node=dict(label=labels, pad=14, thickness=14),
+                link=dict(source=src, target=tgt, value=val),
+            )])
             fig.update_layout(title=f"Sankey – {metric_label}", height=520, margin=dict(l=10, r=10, t=60, b=10))
             fig = style_fig(fig, height=520)
             st.plotly_chart(fig, use_container_width=True, key=pkey("mix_sankey"))
@@ -1024,13 +1035,13 @@ with tab_mix:
             key="dl_mix",
         )
 
-
 # -----------------------------
 # TAB: Customer Segments (RFM added)
 # -----------------------------
 with tab_segments:
     st.subheader("Customer Segments – Who Buys and Who Matters?")
     s_df = f.copy()
+
     s_tabs = st.tabs(["Overview", "Segment × Channel", "Customer Value", "RFM", "Data"])
 
     with s_tabs[0]:
@@ -1065,10 +1076,7 @@ with tab_segments:
         c1, c2 = st.columns([1.2, 1])
         with c1:
             st.markdown("#### Top 20 Customers by Net Sales")
-            st.dataframe(
-                cust_stats.head(20).style.format({"Total_Net_Sales": "{:,.0f}", "Avg_Order": "{:,.0f}"}),
-                use_container_width=True,
-            )
+            st.dataframe(cust_stats.head(20).style.format({"Total_Net_Sales": "{:,.0f}", "Avg_Order": "{:,.0f}"}), use_container_width=True)
 
         with c2:
             fig = px.scatter(
@@ -1089,7 +1097,11 @@ with tab_segments:
         ref_date = s_df["Date"].max()
         rfm = (
             s_df.groupby("Customer Name", as_index=False)
-            .agg(LastPurchase=("Date", "max"), Frequency=("OrderCount", "sum"), Monetary=("Net Sales", "sum"))
+            .agg(
+                LastPurchase=("Date", "max"),
+                Frequency=("OrderCount", "sum"),
+                Monetary=("Net Sales", "sum"),
+            )
         )
         rfm["RecencyDays"] = (ref_date - rfm["LastPurchase"]).dt.days
         rfm = rfm.replace([np.inf, -np.inf], np.nan).dropna(subset=["RecencyDays", "Frequency", "Monetary"])
@@ -1113,8 +1125,7 @@ with tab_segments:
             rfm["F_Tier"] = pd.qcut(rfm["Frequency"].rank(method="first"), 4, labels=["Low", "Mid", "High", "Top"])
             rfm["M_Tier"] = pd.qcut(rfm["Monetary"].rank(method="first"), 4, labels=["Low", "Mid", "High", "Top"])
             tier = (
-                rfm.groupby(["R_Tier", "F_Tier"], as_index=False)["Monetary"]
-                .mean()
+                rfm.groupby(["R_Tier", "F_Tier"], as_index=False)["Monetary"].mean()
                 .pivot(index="R_Tier", columns="F_Tier", values="Monetary")
                 .fillna(0)
                 .round(0)
@@ -1143,13 +1154,13 @@ with tab_segments:
             key="dl_segments",
         )
 
-
 # -----------------------------
 # TAB: Geography & Channels (upgraded)
 # -----------------------------
 with tab_geo:
     st.subheader("Geography & Channels")
     g_df = f.copy()
+
     g_tabs = st.tabs(["Overview", "World Map", "Channel Map", "Country × Channel", "Top Markets", "Data"])
 
     with g_tabs[0]:
@@ -1239,12 +1250,7 @@ with tab_geo:
 
     with g_tabs[4]:
         st.markdown("#### Top Markets & Cities")
-        city_rev = (
-            g_df.groupby(["Country", "City"], as_index=False)[metric_col]
-            .sum()
-            .sort_values(metric_col, ascending=False)
-            .head(20)
-        )
+        city_rev = g_df.groupby(["Country", "City"], as_index=False)[metric_col].sum().sort_values(metric_col, ascending=False).head(20)
         fig = px.bar(
             city_rev,
             x=metric_col,
@@ -1272,13 +1278,13 @@ with tab_geo:
             key="dl_geo",
         )
 
-
 # -----------------------------
 # TAB: Inventory Timing (new visuals)
 # -----------------------------
 with tab_timing:
     st.subheader("Inventory Timing – Speed from Sale to Shipment")
     t_df = f.dropna(subset=["Days to Ship"]).copy()
+
     t_tabs = st.tabs(["SLA Snapshot", "Distributions", "By Channel (Advanced)", "Trend", "Data"])
 
     if t_df.empty:
@@ -1297,15 +1303,14 @@ with tab_timing:
             c3.metric("P90 Days", f"{p90:,.1f}")
             c4.metric("P95 Days", f"{p95:,.1f}")
 
-            gauge = go.Figure(
-                go.Indicator(
-                    mode="gauge+number",
-                    value=within * 100,
-                    number={"suffix": "%"},
-                    title={"text": f"Percent shipped within {sla} days"},
-                    gauge={"axis": {"range": [0, 100]}},
-                )
-            )
+            gauge = go.Figure(go.Indicator(
+                mode="gauge+number",
+                value=within * 100,
+                number={"suffix": "%"},
+                title={"text": f"Percent shipped within {sla} days"},
+                gauge={"axis": {"range": [0, 100]}}
+            ))
+            gauge.update_layout(height=320, margin=dict(l=10, r=10, t=60, b=10))
             gauge = style_fig(gauge, height=320)
             st.plotly_chart(gauge, use_container_width=True, key=pkey("tim_gauge"))
 
@@ -1341,7 +1346,11 @@ with tab_timing:
                 labels = ["0–3", "4–7", "8–14", "15–30", "31+"]
                 t_df["Ship Bucket"] = pd.cut(t_df["Days to Ship"], bins=bins, labels=labels)
 
-                dist = t_df.groupby(["Channel", "Ship Bucket"], as_index=False).size().rename(columns={"size": "Orders"})
+                dist = (
+                    t_df.groupby(["Channel", "Ship Bucket"], as_index=False)
+                    .size()
+                    .rename(columns={"size": "Orders"})
+                )
                 totals = dist.groupby("Channel", as_index=False)["Orders"].sum().rename(columns={"Orders": "Total"})
                 dist = dist.merge(totals, on="Channel", how="left")
                 dist["Share"] = np.where(dist["Total"] > 0, dist["Orders"] / dist["Total"], 0)
@@ -1379,7 +1388,6 @@ with tab_timing:
                 key="dl_timing",
             )
 
-
 # -----------------------------
 # TAB: Ownership (upgrade)
 # -----------------------------
@@ -1401,7 +1409,10 @@ with tab_ownership:
         st.plotly_chart(fig2, use_container_width=True, key=pkey("own_pie"))
 
     with o_tabs[1]:
-        stats = o_df.groupby("Ownership", as_index=False).agg(Orders=("OrderCount", "sum"), NetSales=("Net Sales", "sum"))
+        stats = o_df.groupby("Ownership", as_index=False).agg(
+            Orders=("OrderCount", "sum"),
+            NetSales=("Net Sales", "sum"),
+        )
         stats["NetSalesPerOrder"] = np.where(stats["Orders"] > 0, stats["NetSales"] / stats["Orders"], np.nan)
         fig = px.bar(stats, x="Ownership", y="NetSalesPerOrder", title="Net Sales per Order by Ownership", text_auto=".0f")
         fig.update_layout(yaxis_title="Net Sales / Order (CAD)", xaxis_title="")
@@ -1431,13 +1442,13 @@ with tab_ownership:
             key="dl_own",
         )
 
-
 # -----------------------------
 # TAB: Seasonality (upgrade)
 # -----------------------------
 with tab_seasonality:
     st.subheader("Seasonality – Time Patterns in Sales")
     se_df = f.copy()
+
     se_tabs = st.tabs(["Monthly Trend", "Month × Channel", "Year × Month Heatmap", "Day-of-week", "Data"])
 
     with se_tabs[0]:
@@ -1455,7 +1466,7 @@ with tab_seasonality:
 
     with se_tabs[1]:
         month_channel = se_df.pivot_table(index="Month Name", columns="Channel", values=metric_col, aggfunc="sum").fillna(0)
-        month_order = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        month_order = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
         month_channel = month_channel.reindex([m for m in month_order if m in month_channel.index])
         if not month_channel.empty:
             hm = px.imshow(
@@ -1510,13 +1521,13 @@ with tab_seasonality:
             key="dl_season",
         )
 
-
 # -----------------------------
 # TAB: Compliance (upgrade)
 # -----------------------------
 with tab_compliance:
     st.subheader("Compliance – COA & Export Permits")
     c_df = f.copy()
+
     c_tabs = st.tabs(["COA Coverage", "Export Permits", "Country Risk Bubble", "Data"])
 
     with c_tabs[0]:
@@ -1528,8 +1539,7 @@ with tab_compliance:
         st.plotly_chart(fig, use_container_width=True, key=pkey("coa_pie"))
 
         coa_country = (
-            c_df.groupby("Country", as_index=False)["Has COA"]
-            .mean()
+            c_df.groupby("Country", as_index=False)["Has COA"].mean()
             .rename(columns={"Has COA": "COA Rate"})
             .sort_values("COA Rate", ascending=False)
             .head(12)
@@ -1554,8 +1564,7 @@ with tab_compliance:
             missing = export_df[~export_df["Has Export Permit"]]
             if not missing.empty:
                 miss_by_country = (
-                    missing.groupby("Country", as_index=False)["OrderCount"]
-                    .sum()
+                    missing.groupby("Country", as_index=False)["OrderCount"].sum()
                     .rename(columns={"OrderCount": "Missing Permit Orders"})
                     .sort_values("Missing Permit Orders", ascending=False)
                 )
@@ -1569,10 +1578,13 @@ with tab_compliance:
         if export_df.empty:
             st.info("No export shipments in the current filters.")
         else:
-            risk = export_df.groupby("Country", as_index=False).agg(
-                ExportOrders=("OrderCount", "sum"),
-                MissingRate=("Has Export Permit", lambda s: 1 - float(s.mean()) if len(s) else 0),
-                ExportNetSales=("Net Sales", "sum"),
+            risk = (
+                export_df.groupby("Country", as_index=False)
+                .agg(
+                    ExportOrders=("OrderCount", "sum"),
+                    MissingRate=("Has Export Permit", lambda s: 1 - float(s.mean()) if len(s) else 0),
+                    ExportNetSales=("Net Sales", "sum"),
+                )
             )
             risk = risk[risk["ExportOrders"] > 0].copy()
             fig = px.scatter(
@@ -1600,7 +1612,6 @@ with tab_compliance:
             mime="text/csv",
             key="dl_comp",
         )
-
 
 # -----------------------------
 # TAB: All Data
