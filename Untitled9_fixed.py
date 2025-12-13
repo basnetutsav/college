@@ -859,52 +859,90 @@ with tab_price:
     # TAB 2 (2 visuals)
     # Sales Performance by Dominant Color
     # -----------------------------
-    with t2:
-        st.markdown("### Sales Performance by Dominant Color")
+  with t2:
+    import plotly.colors as pc
 
-        if safe_col(p_df, "Dominant Color") and safe_col(p_df, revenue_col) and safe_col(p_df, price_col):
-            tmp = p_df.dropna(subset=["Dominant Color"]).copy()
+    # Main title (like your screenshot)
+    st.markdown("## Sales Performance by Dominant Color")
 
-            dom = (
-                tmp.groupby("Dominant Color", as_index=False)
-                .agg(
-                    Total_Revenue=(revenue_col, "sum"),
-                    Avg_Price=(price_col, "mean"),
-                )
+    if safe_col(p_df, "Dominant Color") and safe_col(p_df, revenue_col) and safe_col(p_df, price_col):
+        tmp = p_df.dropna(subset=["Dominant Color"]).copy()
+
+        dom = (
+            tmp.groupby("Dominant Color", as_index=False)
+            .agg(
+                Total_Revenue=(revenue_col, "sum"),
+                Avg_Price=(price_col, "mean"),
             )
+        )
 
-            dom_rev = dom.sort_values("Total_Revenue", ascending=False)
-            dom_avg = dom.sort_values("Avg_Price", ascending=False)
+        # Sort like your screenshot: Revenue chart desc, Avg Price chart desc
+        dom_rev = dom.sort_values("Total_Revenue", ascending=False).reset_index(drop=True)
+        dom_avg = dom.sort_values("Avg_Price", ascending=False).reset_index(drop=True)
 
-            c1, c2 = st.columns(2)
+        # Build nice gradient colors (same style look)
+        def _grad_colors(n, scale_name="Viridis"):
+            if n <= 1:
+                return ["#4c78a8"]
+            pts = np.linspace(0.05, 0.95, n)
+            return pc.sample_colorscale(scale_name, pts)
 
-            with c1:
-                fig1 = px.bar(
-                    dom_rev,
-                    x="Dominant Color",
-                    y="Total_Revenue",
-                    title="Total Revenue by Dominant Color",
-                )
-                fig1.update_layout(xaxis_title="Dominant Color", yaxis_title="Total Sales Value (CAD)")
-                fig1.update_yaxes(tickprefix="$", separatethousands=True)
-                fig1.update_xaxes(tickangle=-60)
-                fig1 = style_fig(fig1, height=470)
-                st.plotly_chart(fig1, use_container_width=True, key=pkey("pd_viz_tab2_rev"))
+        c1, c2 = st.columns(2)
 
-            with c2:
-                fig2 = px.bar(
-                    dom_avg,
-                    x="Dominant Color",
-                    y="Avg_Price",
-                    title="Average Price by Dominant Color",
-                )
-                fig2.update_layout(xaxis_title="Dominant Color", yaxis_title="Average Price (CAD)")
-                fig2.update_yaxes(tickprefix="$", separatethousands=True)
-                fig2.update_xaxes(tickangle=-60)
-                fig2 = style_fig(fig2, height=470)
-                st.plotly_chart(fig2, use_container_width=True, key=pkey("pd_viz_tab2_avg"))
-        else:
-            st.info("Missing 'Dominant Color' or required price/revenue columns for this tab.")
+        # -----------------------------
+        # LEFT: Total Revenue
+        # -----------------------------
+        with c1:
+            st.markdown("### Total Sales Value (Revenue) by Dominant Color")
+
+            colors1 = _grad_colors(len(dom_rev), "Viridis")
+            fig1 = go.Figure(
+                data=[
+                    go.Bar(
+                        x=dom_rev["Dominant Color"],
+                        y=dom_rev["Total_Revenue"],
+                        marker=dict(color=colors1),
+                    )
+                ]
+            )
+            fig1.update_layout(
+                title="Total Revenue by Dominant Color",
+                xaxis_title="Dominant Color",
+                yaxis_title="Total Sales Value (CAD)",
+            )
+            fig1.update_xaxes(tickangle=-60)
+            fig1.update_yaxes(tickprefix="$", tickformat="~s")  # shows $600k style
+            fig1 = style_fig(fig1, height=470)
+            st.plotly_chart(fig1, use_container_width=True, key=pkey("pd_dom_rev"))
+
+        # -----------------------------
+        # RIGHT: Average Price
+        # -----------------------------
+        with c2:
+            st.markdown("### Average Price (Unit Value) by Dominant Color")
+
+            colors2 = _grad_colors(len(dom_avg), "Plasma")
+            fig2 = go.Figure(
+                data=[
+                    go.Bar(
+                        x=dom_avg["Dominant Color"],
+                        y=dom_avg["Avg_Price"],
+                        marker=dict(color=colors2),
+                    )
+                ]
+            )
+            fig2.update_layout(
+                title="Average Price by Dominant Color",
+                xaxis_title="Dominant Color",
+                yaxis_title="Average Price (CAD)",
+            )
+            fig2.update_xaxes(tickangle=-60)
+            fig2.update_yaxes(tickprefix="$", tickformat="~s")
+            fig2 = style_fig(fig2, height=470)
+            st.plotly_chart(fig2, use_container_width=True, key=pkey("pd_dom_avg"))
+
+    else:
+        st.info("Missing 'Dominant Color' or required price/revenue columns for this tab.")
 
     # -----------------------------
     # TAB 3 (2 visuals)
