@@ -831,7 +831,7 @@ with tab_price:
     # Average Price by Product Type & Grade
     # -----------------------------
     
-        with t1:
+    with t1:
     if safe_col(p_df, "Product Type") and safe_col(p_df, "Grade") and safe_col(p_df, price_col):
         tmp = p_df.dropna(subset=["Product Type", "Grade", price_col]).copy()
         avg_ptg = (
