@@ -1032,12 +1032,13 @@ with tab_price:
             with st.expander("Insights - Monthly Average Price Trends", expanded=False):
                 st.markdown(
                     """
-### Monthly Average Price Trend by Color Count (Price Power)
+### Monthly Average Price Trend by Grade (Price Power)
 **Insights:** Higher grades consistently achieve higher average prices, indicating strong pricing power tied to product quality.
 
 **Recommendations:**  
 - Focus inventory sourcing and marketing on higher-grade products while maintaining clear grade differentiation to sustain premium pricing.
 
+### Monthly Average Price Trend by Colour Count (Price Power)
 ---
 
 **Insights:** Products with higher color counts generally command higher average prices, suggesting added visual complexity increases perceived value.
