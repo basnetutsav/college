@@ -830,30 +830,32 @@ with tab_price:
     # TAB 1 (1 visual)
     # Average Price by Product Type & Grade
     # -----------------------------
-    with t1:
-        if safe_col(p_df, "Product Type") and safe_col(p_df, "Grade") and safe_col(p_df, price_col):
-            tmp = p_df.dropna(subset=["Product Type", "Grade", price_col]).copy()
-            avg_ptg = (
-                tmp.groupby(["Product Type", "Grade"], as_index=False)
-                .agg(Avg_Price=(price_col, "mean"), Num_Sales=("OrderCount", "sum"))
-            )
+    
+        with t1:
+    if safe_col(p_df, "Product Type") and safe_col(p_df, "Grade") and safe_col(p_df, price_col):
+        tmp = p_df.dropna(subset=["Product Type", "Grade", price_col]).copy()
+        avg_ptg = (
+            tmp.groupby(["Product Type", "Grade"], as_index=False)
+            .agg(Avg_Price=(price_col, "mean"), Num_Sales=("OrderCount", "sum"))
+        )
 
-            fig = px.bar(
-                avg_ptg,
-                x="Product Type",
-                y="Avg_Price",
-                color="Grade",
-                barmode="group",
-                title="Average Price by Product Type & Grade",
-                hover_data={"Num_Sales": True, "Avg_Price": ":,.0f"},
-            )
-            fig.update_layout(xaxis_title="Product Type", yaxis_title="Avg Price (CAD)")
-            fig.update_yaxes(tickprefix="$", separatethousands=True)
-            fig.update_xaxes(tickangle=-25)
-            fig = style_fig(fig, height=520)
-            st.plotly_chart(fig, use_container_width=True, key=pkey("pd_viz_tab1"))
-            with st.expander("Insights - Average Price by Product Type & Grade", expanded=False):
-            with st.markdown(
+        fig = px.bar(
+            avg_ptg,
+            x="Product Type",
+            y="Avg_Price",
+            color="Grade",
+            barmode="group",
+            title="Average Price by Product Type & Grade",
+            hover_data={"Num_Sales": True, "Avg_Price": ":,.0f"},
+        )
+        fig.update_layout(xaxis_title="Product Type", yaxis_title="Avg Price (CAD)")
+        fig.update_yaxes(tickprefix="$", separatethousands=True)
+        fig.update_xaxes(tickangle=-25)
+        fig = style_fig(fig, height=520)
+        st.plotly_chart(fig, use_container_width=True, key=pkey("pd_viz_tab1"))
+
+        with st.expander("Insights - Average Price by Product Type & Grade", expanded=False):
+            st.markdown(
                 """
 **Insights:** Shows how discounting relates to net sale value and highlights if large discounts are driving larger baskets.
 
@@ -864,10 +866,12 @@ with tab_price:
 - Create tiered offers (e.g., discounts only above certain cart values) to protect profitability.
 """
             )
+
         st.divider()
-        else:
-            st.info("Missing required columns for this chart (need Product Type, Grade, and a price column).")
-        
+
+    else:
+        st.info("Missing required columns for this chart (need Product Type, Grade, and a price column).")
+
 
     # -----------------------------
     # TAB 2 (2 visuals)
