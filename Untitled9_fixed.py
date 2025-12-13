@@ -794,197 +794,355 @@ with tab_overview:
     st.markdown("\n".join(bullets))
 
 # -----------------------------
-# TAB: Price Drivers (more advanced)
+# TAB: Price Drivers / Visualization (REPLACED to match your 5-tab layout + 9 visuals)
 # -----------------------------
 with tab_price:
-    st.subheader("Price Drivers – Grade, Colour, Size")
+    st.subheader("Price Drivers / Visualization")
 
     p_df = f.copy()
 
-    p_tabs = st.tabs(["Driver Explorer", "Distributions", "Heatmaps", "Correlations", "Data"])
+    # Use Net Sales if available (best “revenue after discount”), else fallback
+    if safe_col(p_df, "Net Sales"):
+        revenue_col = "Net Sales"
+    elif safe_col(p_df, "Price (CAD)"):
+        revenue_col = "Price (CAD)"
+    else:
+        revenue_col = metric_col  # last resort
 
-    # --- Driver Explorer
-    with p_tabs[0]:
-        st.markdown("#### Driver Explorer (choose a driver → see impact on Net Sales)")
-        driver_options = []
-        for col in ["Grade", "Finish", "Product Type", "Dominant Color", "Channel", "Country", "Customer Type", "Ownership"]:
-            if safe_col(p_df, col):
-                driver_options.append(col)
+    price_col = revenue_col  # “Average Price (Unit Value)” in your screenshots
 
-        driver = st.selectbox("Driver", options=driver_options if driver_options else ["(none)"], key="pd_driver")
-        agg = st.selectbox("Aggregation", ["Median", "Mean"], key="pd_agg")
+    # Most recent year in the filtered view (matches your screenshots showing 2025)
+    year_pick = int(p_df["Year"].dropna().max()) if safe_col(p_df, "Year") and p_df["Year"].notna().any() else None
+    p_year = p_df[p_df["Year"] == year_pick].copy() if year_pick is not None else p_df.copy()
 
-        if driver != "(none)":
-            g = p_df.groupby(driver, as_index=False).agg(
-                Orders=("Sale ID", "count") if safe_col(p_df, "Sale ID") else ("OrderCount", "sum"),
-                NetSales=("Net Sales", "sum"),
-                Avg=("Net Sales", "mean"),
-                Med=("Net Sales", "median"),
+    # 5 Tabs (exact structure you requested)
+    t1, t2, t3, t4, t5 = st.tabs(
+        [
+            "Average Price by Product Type & Grade",
+            "Sales Performance by Dominant Color",
+            "Monthly Sales Value vs Average Price Trend",
+            "Monthly Total Sales Value Trend (Revenue)",
+            "Next Fiscal Year Seasonal Forecast (30% Growth)",
+        ]
+    )
+
+    # -----------------------------
+    # TAB 1 (1 visual)
+    # Average Price by Product Type & Grade
+    # -----------------------------
+    with t1:
+        if safe_col(p_df, "Product Type") and safe_col(p_df, "Grade") and safe_col(p_df, price_col):
+            tmp = p_df.dropna(subset=["Product Type", "Grade", price_col]).copy()
+            avg_ptg = (
+                tmp.groupby(["Product Type", "Grade"], as_index=False)
+                .agg(Avg_Price=(price_col, "mean"), Num_Sales=("OrderCount", "sum"))
             )
 
-            g["Chosen"] = g["Med"] if agg == "Median" else g["Avg"]
-            g = g.sort_values("Chosen", ascending=False).head(20)
+            fig = px.bar(
+                avg_ptg,
+                x="Product Type",
+                y="Avg_Price",
+                color="Grade",
+                barmode="group",
+                title="Average Price by Product Type & Grade",
+                hover_data={"Num_Sales": True, "Avg_Price": ":,.0f"},
+            )
+            fig.update_layout(xaxis_title="Product Type", yaxis_title="Avg Price (CAD)")
+            fig.update_yaxes(tickprefix="$", separatethousands=True)
+            fig.update_xaxes(tickangle=-25)
+            fig = style_fig(fig, height=520)
+            st.plotly_chart(fig, use_container_width=True, key=pkey("pd_viz_tab1"))
+        else:
+            st.info("Missing required columns for this chart (need Product Type, Grade, and a price column).")
 
-            c1, c2 = st.columns([1.2, 1])
+    # -----------------------------
+    # TAB 2 (2 visuals)
+    # Sales Performance by Dominant Color
+    # -----------------------------
+    with t2:
+        st.markdown("### Sales Performance by Dominant Color")
+
+        if safe_col(p_df, "Dominant Color") and safe_col(p_df, revenue_col) and safe_col(p_df, price_col):
+            tmp = p_df.dropna(subset=["Dominant Color"]).copy()
+
+            dom = (
+                tmp.groupby("Dominant Color", as_index=False)
+                .agg(
+                    Total_Revenue=(revenue_col, "sum"),
+                    Avg_Price=(price_col, "mean"),
+                )
+            )
+
+            dom_rev = dom.sort_values("Total_Revenue", ascending=False)
+            dom_avg = dom.sort_values("Avg_Price", ascending=False)
+
+            c1, c2 = st.columns(2)
 
             with c1:
-                fig = px.bar(
-                    g,
-                    x="Chosen",
-                    y=driver,
-                    orientation="h",
-                    title=f"{agg} Net Sales by {driver} (Top 20)",
-                    hover_data={"Orders": True, "NetSales": ":,.0f", "Avg": ":,.0f", "Med": ":,.0f"},
+                fig1 = px.bar(
+                    dom_rev,
+                    x="Dominant Color",
+                    y="Total_Revenue",
+                    title="Total Revenue by Dominant Color",
                 )
-                fig.update_layout(xaxis_title=f"{agg} Net Sales (CAD)", yaxis_title="")
-                fig = style_fig(fig, height=470)
-                st.plotly_chart(fig, use_container_width=True, key=pkey("pd_driver_bar"))
+                fig1.update_layout(xaxis_title="Dominant Color", yaxis_title="Total Sales Value (CAD)")
+                fig1.update_yaxes(tickprefix="$", separatethousands=True)
+                fig1.update_xaxes(tickangle=-60)
+                fig1 = style_fig(fig1, height=470)
+                st.plotly_chart(fig1, use_container_width=True, key=pkey("pd_viz_tab2_rev"))
 
             with c2:
-                numeric_driver = st.selectbox(
-                    "Numeric driver (optional)",
-                    options=[x for x in ["Color Count (#)", "weight", "Area (mm²)", "Price per mm²"] if safe_col(p_df, x)],
-                    index=0 if safe_col(p_df, "Color Count (#)") else 0,
-                    key="pd_num_driver",
+                fig2 = px.bar(
+                    dom_avg,
+                    x="Dominant Color",
+                    y="Avg_Price",
+                    title="Average Price by Dominant Color",
                 )
-                if numeric_driver and safe_col(p_df, numeric_driver) and p_df[numeric_driver].notna().any():
-                    tmp = p_df.dropna(subset=[numeric_driver, "Net Sales"]).copy()
-                    fig2 = px.density_heatmap(
-                        tmp,
-                        x=numeric_driver,
-                        y="Net Sales",
-                        nbinsx=30,
-                        nbinsy=30,
-                        title=f"Density: Net Sales vs {numeric_driver}",
+                fig2.update_layout(xaxis_title="Dominant Color", yaxis_title="Average Price (CAD)")
+                fig2.update_yaxes(tickprefix="$", separatethousands=True)
+                fig2.update_xaxes(tickangle=-60)
+                fig2 = style_fig(fig2, height=470)
+                st.plotly_chart(fig2, use_container_width=True, key=pkey("pd_viz_tab2_avg"))
+        else:
+            st.info("Missing 'Dominant Color' or required price/revenue columns for this tab.")
+
+    # -----------------------------
+    # TAB 3 (2 visuals)
+    # Monthly Sales Value Vs Average price trend
+    # -----------------------------
+    with t3:
+        st.markdown("### Monthly Sales Value Vs Average price trend")
+
+        if year_pick is None or not safe_col(p_year, "Month"):
+            st.info("Missing Month/Year info to build monthly trends.")
+        else:
+            c1, c2 = st.columns(2)
+
+            # (1) Monthly Average Price Trend by Grade
+            with c1:
+                st.markdown("#### Monthly Average Price (CAD) Trend (Price Power)")
+                if safe_col(p_year, "Grade") and safe_col(p_year, price_col):
+                    g = (
+                        p_year.dropna(subset=["Month", "Grade", price_col])
+                        .groupby(["Month", "Grade"], as_index=False)
+                        .agg(Avg_Price=(price_col, "mean"))
+                        .sort_values("Month")
                     )
-                    fig2.update_layout(xaxis_title=numeric_driver, yaxis_title="Net Sales (CAD)")
-                    fig2 = style_fig(fig2, height=470)
-                    st.plotly_chart(fig2, use_container_width=True, key=pkey("pd_density"))
+                    fig = px.line(
+                        g,
+                        x="Month",
+                        y="Avg_Price",
+                        color="Grade",
+                        markers=True,
+                        title="Average Price Trend",
+                    )
+                    fig.update_layout(xaxis_title=f"Date ({year_pick})", yaxis_title="Average Price (CAD)")
+                    fig.update_yaxes(tickprefix="$", separatethousands=True)
+                    fig.update_xaxes(tickformat="%b")
+                    fig = style_fig(fig, height=470)
+                    st.plotly_chart(fig, use_container_width=True, key=pkey("pd_viz_tab3_grade"))
                 else:
-                    st.info("No numeric driver data available for the selected field.")
+                    st.info("Need 'Grade' and a price column to plot this trend.")
 
-    # --- Distributions
-    with p_tabs[1]:
-        st.markdown("#### Distributions (better than simple boxplots)")
-        dist_by = st.selectbox(
-            "Group by",
-            options=[c for c in ["Grade", "Finish", "Product Type", "Channel", "Ownership"] if safe_col(p_df, c)],
-            key="pd_dist_by",
-        )
+            # (2) Monthly Average Price Trend by Color Count
+            with c2:
+                st.markdown("#### Monthly Average Price (CAD) Trend by Color Count (Price Power)")
+                if safe_col(p_year, "Color Count (#)") and safe_col(p_year, price_col):
+                    cc = p_year.dropna(subset=["Month", "Color Count (#)", price_col]).copy()
+                    cc["Color Count (#)"] = cc["Color Count (#)"].round(0).astype("Int64").astype(str)
 
-        if dist_by:
-            tmp = p_df.dropna(subset=["Net Sales"]).copy()
-            fig = px.violin(
-                tmp,
-                x=dist_by,
-                y="Net Sales",
-                box=True,
-                points="all",
-                title=f"Net Sales Distribution by {dist_by} (Violin)",
-            )
-            fig.update_layout(xaxis_title=dist_by, yaxis_title="Net Sales (CAD)")
-            fig = style_fig(fig, height=470)
-            st.plotly_chart(fig, use_container_width=True, key=pkey("pd_violin"))
+                    g2 = (
+                        cc.groupby(["Month", "Color Count (#)"], as_index=False)
+                        .agg(Avg_Price=(price_col, "mean"))
+                        .sort_values("Month")
+                    )
+                    fig2 = px.line(
+                        g2,
+                        x="Month",
+                        y="Avg_Price",
+                        color="Color Count (#)",
+                        markers=True,
+                        title="Average Price Trend by Color Count",
+                    )
+                    fig2.update_layout(xaxis_title=f"Date ({year_pick})", yaxis_title="Average Price (CAD)")
+                    fig2.update_yaxes(tickprefix="$", separatethousands=True)
+                    fig2.update_xaxes(tickformat="%b")
+                    fig2 = style_fig(fig2, height=470)
+                    st.plotly_chart(fig2, use_container_width=True, key=pkey("pd_viz_tab3_cc"))
+                else:
+                    st.info("Need 'Color Count (#)' and a price column to plot this trend.")
 
-            top_groups = tmp[dist_by].value_counts().head(6).index.tolist()
-            tmp2 = tmp[tmp[dist_by].isin(top_groups)].copy()
-            fig2 = px.histogram(
-                tmp2,
-                x="Net Sales",
-                color=dist_by,
-                nbins=45,
-                title=f"Histogram of Net Sales (Top {len(top_groups)} {dist_by})",
-            )
-            fig2.update_layout(xaxis_title="Net Sales (CAD)", yaxis_title="Orders")
-            fig2 = style_fig(fig2, height=430)
-            st.plotly_chart(fig2, use_container_width=True, key=pkey("pd_hist"))
+    # -----------------------------
+    # TAB 4 (3 visuals)
+    # Monthly Total Sales Value Trend (Revenue)
+    # -----------------------------
+    with t4:
+        st.markdown("### Monthly Total Sales Value Trend (Revenue)")
 
-    # --- Heatmaps
-    with p_tabs[2]:
-        st.markdown("#### Heatmaps (Avg/Median + Order Volume toggle)")
-        row = st.selectbox("Rows", options=[c for c in ["Grade", "Finish", "Product Type", "Channel"] if safe_col(p_df, c)], key="pd_hm_row")
-        col = st.selectbox("Columns", options=[c for c in ["Finish", "Grade", "Channel", "Customer Type"] if safe_col(p_df, c)], key="pd_hm_col")
-        measure = st.selectbox("Cell value", ["Average Net Sales", "Median Net Sales", "Order Count"], key="pd_hm_val")
+        if year_pick is None or not safe_col(p_year, "Month"):
+            st.info("Missing Month/Year info to build monthly revenue trends.")
+        else:
+            top = st.columns(2)
 
-        if row and col and row != col:
-            if measure == "Average Net Sales":
-                pv = p_df.pivot_table(index=row, columns=col, values="Net Sales", aggfunc="mean", fill_value=0).round(0)
-                label = "Avg Net Sales (CAD)"
-            elif measure == "Median Net Sales":
-                pv = p_df.pivot_table(index=row, columns=col, values="Net Sales", aggfunc="median", fill_value=0).round(0)
-                label = "Median Net Sales (CAD)"
-            else:
-                base = "Sale ID" if safe_col(p_df, "Sale ID") else "OrderCount"
-                pv = p_df.pivot_table(index=row, columns=col, values=base, aggfunc="count", fill_value=0)
-                label = "Order Count"
+            # (1) Monthly Total Sales Value Trend by Grade
+            with top[0]:
+                st.markdown("#### Monthly Total Sales Value (CAD) Trend by Grade (Revenue)")
+                if safe_col(p_year, "Grade") and safe_col(p_year, revenue_col):
+                    gr = (
+                        p_year.dropna(subset=["Month", "Grade", revenue_col])
+                        .groupby(["Month", "Grade"], as_index=False)
+                        .agg(Total_Sales=(revenue_col, "sum"))
+                        .sort_values("Month")
+                    )
+                    fig = px.line(
+                        gr,
+                        x="Month",
+                        y="Total_Sales",
+                        color="Grade",
+                        markers=True,
+                        title="Total Sales Value Trend (by Grade)",
+                    )
+                    fig.update_layout(xaxis_title=f"Date ({year_pick})", yaxis_title="Total Sales Value (CAD)")
+                    fig.update_yaxes(tickprefix="$", separatethousands=True)
+                    fig.update_xaxes(tickformat="%b")
+                    fig = style_fig(fig, height=420)
+                    st.plotly_chart(fig, use_container_width=True, key=pkey("pd_viz_tab4_grade"))
+                else:
+                    st.info("Need 'Grade' and a revenue column to plot this trend.")
 
-            if not pv.empty:
-                max_rows_hm = st.slider("Max rows in heatmap", 5, 35, 20, key="pd_hm_maxr")
-                max_cols_hm = st.slider("Max columns in heatmap", 5, 35, 15, key="pd_hm_maxc")
+            # (2) Monthly Total Sales Value Trend by Color Count
+            with top[1]:
+                st.markdown("#### Monthly Total Sales Value (CAD) Trend by Color Count (Revenue)")
+                if safe_col(p_year, "Color Count (#)") and safe_col(p_year, revenue_col):
+                    cc = p_year.dropna(subset=["Month", "Color Count (#)", revenue_col]).copy()
+                    cc["Color Count (#)"] = cc["Color Count (#)"].round(0).astype("Int64").astype(str)
 
-                pv2 = pv.copy().iloc[:max_rows_hm, :max_cols_hm]
+                    cr = (
+                        cc.groupby(["Month", "Color Count (#)"], as_index=False)
+                        .agg(Total_Sales=(revenue_col, "sum"))
+                        .sort_values("Month")
+                    )
+                    fig2 = px.line(
+                        cr,
+                        x="Month",
+                        y="Total_Sales",
+                        color="Color Count (#)",
+                        markers=True,
+                        title="Total Sales Value Trend (by Color Count)",
+                    )
+                    fig2.update_layout(xaxis_title=f"Date ({year_pick})", yaxis_title="Total Sales Value (CAD)")
+                    fig2.update_yaxes(tickprefix="$", separatethousands=True)
+                    fig2.update_xaxes(tickformat="%b")
+                    fig2 = style_fig(fig2, height=420)
+                    st.plotly_chart(fig2, use_container_width=True, key=pkey("pd_viz_tab4_cc"))
+                else:
+                    st.info("Need 'Color Count (#)' and a revenue column to plot this trend.")
 
-                hm = px.imshow(
-                    pv2,
-                    aspect="auto",
-                    labels=dict(x=col, y=row, color=label),
-                    title=f"{label} Heatmap – {row} × {col}",
+            # (3) Monthly Total Sales Value Trend (Overall)
+            st.markdown("#### Monthly Total Sales Value (CAD) Trend (Overall)")
+            if safe_col(p_year, revenue_col):
+                overall = (
+                    p_year.dropna(subset=["Month", revenue_col])
+                    .groupby("Month", as_index=False)
+                    .agg(Total_Sales=(revenue_col, "sum"))
+                    .sort_values("Month")
                 )
-                hm = style_fig(hm, height=500)
-                st.plotly_chart(hm, use_container_width=True, key=pkey("pd_hm"))
+                fig3 = px.line(
+                    overall,
+                    x="Month",
+                    y="Total_Sales",
+                    markers=True,
+                    title="Overall Total Sales Value Trend",
+                )
+                fig3.update_layout(xaxis_title=f"Date ({year_pick})", yaxis_title="Total Sales Value (CAD)")
+                fig3.update_yaxes(tickprefix="$", separatethousands=True)
+                fig3.update_xaxes(tickformat="%b")
+                fig3 = style_fig(fig3, height=520)
+                st.plotly_chart(fig3, use_container_width=True, key=pkey("pd_viz_tab4_overall"))
             else:
-                st.info("Heatmap is empty for current selection.")
+                st.info("Need a revenue column to plot the overall trend.")
+
+    # -----------------------------
+    # TAB 5 (1 visual, but 2-panel layout like your screenshot)
+    # Next Fiscal Year Seasonal Forecast Model (30% Growth)
+    # -----------------------------
+    with t5:
+        st.markdown("### Next Fiscal Year Seasonal Forecast Model (30% Growth)")
+        st.caption("Based on the Google: 30% is the significant increase yearly driven by Rarity and Diminishing Supply.")
+
+        if safe_col(p_df, "Product Type") and safe_col(p_df, "Grade") and safe_col(p_df, price_col) and safe_col(p_df, "Month") and safe_col(p_df, "Year"):
+            left, right = st.columns(2)
+
+            prod_opts = sorted([x for x in p_df["Product Type"].dropna().unique().tolist() if str(x).strip() != ""])
+            grade_opts = sorted([x for x in p_df["Grade"].dropna().unique().tolist() if str(x).strip() != ""])
+
+            sel_prod = st.selectbox("Select Product Type:", options=prod_opts, key="pd_fc_prod")
+            sel_grade = st.selectbox("Select Grade:", options=grade_opts, key="pd_fc_grade")
+
+            sub = p_df[(p_df["Product Type"] == sel_prod) & (p_df["Grade"] == sel_grade)].copy()
+            if sub.empty:
+                st.info("No rows match that Product Type + Grade under current filters.")
+            else:
+                base_year = int(sub["Year"].dropna().max())
+                forecast_year = base_year + 1
+
+                # Actual series (base year)
+                actual = (
+                    sub[sub["Year"] == base_year]
+                    .dropna(subset=["Month", price_col])
+                    .groupby("Month", as_index=False)
+                    .agg(Avg_Price=(price_col, "mean"))
+                    .sort_values("Month")
+                )
+
+                # Ensure 12-month frame for consistent seasonality mapping
+                months_base = pd.date_range(f"{base_year}-01-01", periods=12, freq="MS")
+                actual_full = pd.DataFrame({"Month": months_base}).merge(actual, on="Month", how="left")
+
+                # Forecast: repeat seasonality (lower bound) + 30% growth (upper bound)
+                months_fc = pd.date_range(f"{forecast_year}-01-01", periods=12, freq="MS")
+                fc = pd.DataFrame({"Month": months_fc})
+                fc["Lower Bound"] = actual_full["Avg_Price"].values
+                fc["Upper Bound"] = actual_full["Avg_Price"].values * 1.30
+
+                with left:
+                    fig_a = px.line(
+                        actual_full,
+                        x="Month",
+                        y="Avg_Price",
+                        markers=True,
+                        title=f"Actual Monthly Average Price ({base_year})<br>{sel_prod} ({sel_grade})",
+                    )
+                    fig_a.update_layout(xaxis_title="Date", yaxis_title="Average Price (CAD)")
+                    fig_a.update_yaxes(tickprefix="$", separatethousands=True)
+                    fig_a.update_xaxes(tickformat="%b %Y")
+                    fig_a = style_fig(fig_a, height=520)
+                    st.plotly_chart(fig_a, use_container_width=True, key=pkey("pd_fc_actual"))
+
+                with right:
+                    fig_f = go.Figure()
+                    fig_f.add_trace(go.Scatter(
+                        x=fc["Month"], y=fc["Lower Bound"],
+                        mode="lines+markers",
+                        name=f"{forecast_year} Forecast: Lower Bound"
+                    ))
+                    fig_f.add_trace(go.Scatter(
+                        x=fc["Month"], y=fc["Upper Bound"],
+                        mode="lines+markers",
+                        name=f"{forecast_year} Forecast: Upper Bound"
+                    ))
+                    fig_f.update_layout(
+                        title=f"Forecast Monthly Average Price ({forecast_year})",
+                        xaxis_title="Date",
+                        yaxis_title="Average Price (CAD)",
+                    )
+                    fig_f.update_yaxes(tickprefix="$", separatethousands=True)
+                    fig_f.update_xaxes(tickformat="%b %Y")
+                    fig_f = style_fig(fig_f, height=520)
+                    st.plotly_chart(fig_f, use_container_width=True, key=pkey("pd_fc_forecast"))
         else:
-            st.info("Pick different fields for Rows and Columns.")
+            st.info("Missing required columns for forecasting (need Product Type, Grade, Month, Year, and a price column).")
 
-    # --- Correlations
-    with p_tabs[3]:
-        st.markdown("#### Correlation (numeric drivers ↔ pricing)")
-        num_candidates = [c for c in ["Net Sales", "Total Collected", "Discount (CAD)", "Shipping (CAD)",
-                                     "Taxes Collected (CAD)", "Color Count (#)", "length", "width", "weight",
-                                     "Area (mm²)", "Price per mm²", "Days to Ship"] if safe_col(p_df, c)]
-        tmp = p_df[num_candidates].copy()
-        tmp = tmp.apply(pd.to_numeric, errors="coerce")
-        corr = tmp.corr(numeric_only=True)
-
-        if corr.shape[0] >= 2:
-            fig = px.imshow(
-                corr.round(2),
-                aspect="auto",
-                title="Correlation Heatmap (numeric columns)",
-            )
-            fig = style_fig(fig, height=520)
-            st.plotly_chart(fig, use_container_width=True, key=pkey("pd_corr"))
-
-            if "Net Sales" in corr.columns:
-                drivers = corr["Net Sales"].drop(labels=["Net Sales"]).dropna().sort_values(key=lambda s: s.abs(), ascending=False).head(8)
-                ddf = drivers.reset_index()
-                ddf.columns = ["Driver", "Correlation"]
-                fig2 = px.bar(ddf, x="Correlation", y="Driver", orientation="h", title="Top Numeric Correlations vs Net Sales")
-                fig2 = style_fig(fig2, height=380)
-                st.plotly_chart(fig2, use_container_width=True, key=pkey("pd_corr_rank"))
-        else:
-            st.info("Not enough numeric columns to compute correlations.")
-
-    # --- Data
-    with p_tabs[4]:
-        st.markdown("#### Raw Data – Price Drivers")
-        cols = [
-            "Sale ID", "Date", "Country", "Product Type", "Grade", "Finish",
-            "Dominant Color", "Color Count (#)", "length", "width", "weight",
-            "Area (mm²)", "Net Sales", "Price per mm²",
-        ]
-        cols = [c for c in cols if c in p_df.columns]
-        subset = p_df[cols].copy()
-        subset = subset.loc[:, ~subset.columns.duplicated()]
-        st.dataframe(subset.head(max_rows), use_container_width=True)
-        st.download_button(
-            "Download price-driver subset (CSV)",
-            data=subset.to_csv(index=False).encode("utf-8"),
-            file_name="price_drivers_subset.csv",
-            mime="text/csv",
-            key="dl_price",
-        )
 
 # -----------------------------
 # TAB: Product Mix (more advanced)
