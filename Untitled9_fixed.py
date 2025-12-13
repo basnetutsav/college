@@ -1283,8 +1283,7 @@ with tab_price:
 - Use the lower-bound scenario for budgeting and cash-flow planning, and treat the upper bound as an upside target for stretch planning.
 - Increase marketing/promo activity in months where the forecast dips to stabilize sales and improve capacity utilization.
 - Track forecast error monthly and retrain/update the model regularly as new sales data arrives to keep seasonality patterns accurate.
-""")
-
+"""
                 )
 
             st.divider()
