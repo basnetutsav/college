@@ -881,13 +881,13 @@ with tab_price:
             with st.expander("Insights - Average Price by Product Type & Grade", expanded=False):
                 st.markdown(
                     """
-**Insights:** Compares pricing power across Product Types and Grades.
+**Insights:** Shows how discounting relates to net sale value and highlights if large discounts are driving larger baskets.
 
-**Why it helps:** Identifies which product/grade combinations command the highest average price.
+**Why it helps:** Helps manage promotions without unintentionally eroding margins.
 
-**Recommendations:**
-- Push more inventory/marketing into the highest price-power combinations.
-- If a Grade is underperforming, review discounting, presentation, or bundle strategy.
+**Recommendations:**  
+- If discounts don’t meaningfully lift net sale value, reduce discount depth or tighten eligibility.  
+- Create tiered offers (e.g., discounts only above certain cart values) to protect profitability.
 """
                 )
 
@@ -947,13 +947,13 @@ with tab_price:
             with st.expander("Insights - Sales Performance by Dominant Color", expanded=False):
                 st.markdown(
                     """
-**Insights:** Shows which colors drive the most revenue vs which colors command higher average price.
+**Insights:** Two Graphs shown the relationship between High Volume-Lower Price (Mass Market Leader), Low Volume-High Price (Luxury)and High Value Performer(Sweet Spot) if they both high performing. This Focal point of the Total Market Performances.
 
-**Why it helps:** Separates “volume colors” from “premium colors.”
-
-**Recommendations:**
-- Keep strong stock depth for top-revenue colors.
-- Highlight premium colors in marketing/featured collections to lift AOV.
+**Recommendations:**  
+- Market Leader: Test a Small price increase to boost profit on high volume 
+- Luxury: Maintain high price and controlled and explore selective expansion
+- Sweet Spot : Invest more and replicate its successful strategy across the product line
+- Underperformer: Liquidate stock and cut resources.
 """
                 )
 
@@ -1032,13 +1032,20 @@ with tab_price:
             with st.expander("Insights - Monthly Average Price Trends", expanded=False):
                 st.markdown(
                     """
-**Insights:** Tracks price power across months (seasonality) and how it changes by Grade / Color Count.
+**Insights:** Higher grades consistently achieve higher average prices, indicating strong pricing power tied to product quality.
 
-**Why it helps:** Helps plan pricing + merchandising around peak months.
+**Recommendations:**  
+- Focus inventory sourcing and marketing on higher-grade products while maintaining clear grade differentiation to sustain premium pricing.
 
-**Recommendations:**
-- If certain months consistently show higher average price, schedule premium launches there.
-- If volatility is high, review discount timing and inventory mix.
+---
+
+### Monthly Average Price Trend by Color Count (Price Power)
+
+**Insights:** Products with higher color counts generally command higher average prices, suggesting added visual complexity increases perceived value.
+
+**Recommendations:**  
+- Emphasize color richness in product presentation and apply premium pricing for multi-color or rare color combinations.
+
 """
                 )
 
@@ -1137,13 +1144,36 @@ with tab_price:
             with st.expander("Insights - Monthly Revenue Trends", expanded=False):
                 st.markdown(
                     """
-**Insights:** Shows seasonality in total sales value and which segments drive monthly revenue.
-
-**Why it helps:** Helps plan inventory, staffing, and promo calendar.
+### Monthly Total Sales Value (CAD) Trend by Color Count (Revenue)
+**Insights:**
+- Shows how revenue changes over time across different color counts.
+- Helps identify which color profiles consistently drive higher sales value.
 
 **Recommendations:**
-- Replicate strategies used in peak months (channels, campaigns, featured products).
-- If certain segments are declining, investigate pricing, availability, and discount intensity.
+- Focus sourcing and pricing strategies on color counts with sustained revenue growth.
+- Adjust inventory planning when sharp fluctuations appear.
+
+---
+
+### Total Sales Value Trend (by Color Count)
+**Insights:**
+- Highlights overall revenue contribution by each color-count category.
+- Clearly distinguishes dominant versus underperforming segments.
+
+**Recommendations:**
+- Strengthen promotion for top-performing color counts.
+- Re-evaluate pricing, bundling, or positioning for weaker segments.
+
+---
+
+### Overall Total Sales Value Trend
+**Insights:**
+- Provides a macro view of total revenue performance over time.
+- Reveals seasonality, growth cycles, and potential slowdowns.
+
+**Recommendations:**
+- Leverage peak periods for premium pricing and stock optimization.
+- Use low-demand periods for clearance strategies or supplier renegotiation.
 """
                 )
 
@@ -1244,14 +1274,17 @@ with tab_price:
             with st.expander("Insights - Next Fiscal Year Forecast", expanded=False):
                 st.markdown(
                     """
-**Insights:** Uses last year’s monthly seasonality as a baseline and applies a +30% upper scenario.
-
-**Why it helps:** Gives a planning range (conservative vs aggressive) for pricing expectations.
+- The forecast shows expected seasonal peaks and dips across the next fiscal year, highlighting when demand is likely to rise or soften.
+- The uncertainty band (lower vs upper bound) widens in some months, indicating higher volatility and less predictable sales periods.
+- Months with consistently higher forecast values suggest stronger seasonal demand that can be planned for ahead of time.
 
 **Recommendations:**
-- Use the upper bound for stretch targets and inventory planning.
-- Use the lower bound for minimum viable pricing and cash-flow planning.
-"""
+- Align inventory and procurement ahead of forecasted peak months to reduce stockouts and missed revenue.
+- Use the lower-bound scenario for budgeting and cash-flow planning, and treat the upper bound as an upside target for stretch planning.
+- Increase marketing/promo activity in months where the forecast dips to stabilize sales and improve capacity utilization.
+- Track forecast error monthly and retrain/update the model regularly as new sales data arrives to keep seasonality patterns accurate.
+""")
+
                 )
 
             st.divider()
