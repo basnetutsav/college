@@ -853,7 +853,7 @@ with tab_price:
             fig = style_fig(fig, height=520)
             st.plotly_chart(fig, use_container_width=True, key=pkey("pd_viz_tab1"))
             with st.expander("Insights - Average Price by Product Type & Grade", expanded=False):
-            st.markdown(
+            with st.markdown(
                 """
 **Insights:** Shows how discounting relates to net sale value and highlights if large discounts are driving larger baskets.
 
