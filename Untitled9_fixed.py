@@ -1510,9 +1510,8 @@ with tab_segments:
             mime="text/csv",
             key="dl_segments",
         )
-
 # -----------------------------
-# TAB: Geography & Channels (NEW tabs you requested)
+# TAB: Geography & Channels (Price-Drivers style layout)
 # -----------------------------
 with tab_geo:
     st.subheader("Geography & Channels")
@@ -1559,18 +1558,6 @@ with tab_geo:
             out.insert(0, "#", range(1, len(out) + 1))
             return out
 
-    if "p_fmt" not in globals():
-        def p_fmt(p):
-            try:
-                p = float(p)
-            except Exception:
-                return "—"
-            if not np.isfinite(p):
-                return "—"
-            if p < 1e-4:
-                return "<0.0001"
-            return f"{p:.4f}"
-
     if "fig_tight" not in globals():
         def fig_tight(fig, height=520):
             fig.update_layout(margin=dict(l=10, r=10, t=60, b=10), height=height)
@@ -1604,11 +1591,11 @@ with tab_geo:
             )
             return fig_tight(hm, height=520)
 
-    # ---- SciPy for Stats tab (safe) ----
-    try:
-        from scipy import stats
-    except Exception:
-        stats = None
+    def insights_expander(title: str, insights_md: str, why_md: str, recs_md: str):
+        with st.expander(f"Insights - {title}", expanded=False):
+            st.markdown(f"**Insights:**\n{insights_md if insights_md.strip() else '-'}")
+            st.markdown(f"\n**Why it helps:**\n{why_md if why_md.strip() else '-'}")
+            st.markdown(f"\n**Recommendations:**\n{recs_md if recs_md.strip() else '-'}")
 
     # ---- aggregations ----
     country_totals = df.groupby("Country")[metric].sum().sort_values(ascending=False)
@@ -1617,7 +1604,6 @@ with tab_geo:
     top_country = str(country_totals.index[0]) if len(country_totals) else "—"
     top_channel = str(channel_totals.index[0]) if len(channel_totals) else "—"
 
-    # consignment rate (optional)
     cons_rate = np.nan
     for ccol in ["Consignment? (Y/N)", "Consignment", "Consignment?"]:
         if ccol in df.columns:
@@ -1625,13 +1611,12 @@ with tab_geo:
             cons_rate = float(s.isin(["y", "yes", "true", "1"]).mean() * 100) if len(s) else np.nan
             break
 
-    # negative lag rows (optional)
     neg_lag_rows = 0
     if lag_col is not None and lag_col in df.columns:
         neg_lag_rows = int((pd.to_numeric(df[lag_col], errors="coerce") < 0).sum())
 
     # -----------------------------
-    # YOUR requested tabs
+    # Tabs (your requested ones)
     # -----------------------------
     tabs = st.tabs(["Overview", "World Map", "Geography × Channels", "Time", "Stats", "Data"])
 
@@ -1639,30 +1624,34 @@ with tab_geo:
     # TAB 0: Overview
     # ======================
     with tabs[0]:
-        st.subheader("Insights")
-        share_top = float(country_totals.iloc[0] / country_totals.sum()) if country_totals.sum() else np.nan
-        bullets = []
-        if np.isfinite(share_top):
-            bullets.append(f"- **{top_country}** is the biggest market and drives about **{share_top*100:.1f}%** of {metric_name}.")
-        bullets.append(f"- The top channel by {metric_name} is **{top_channel}**.")
-        if np.isfinite(cons_rate):
-            bullets.append(f"- Consignment is **{cons_rate:.1f}%** of orders.")
-        if neg_lag_rows > 0:
-            bullets.append(f"- Shipping data has **{neg_lag_rows}** rows where shipped date is before sale date (treated as missing in lag charts if toggle is ON).")
-        st.markdown("\n".join(bullets) if bullets else "-")
+        total_val = float(country_totals.sum()) if len(country_totals) else 0.0
+        share_top = float(country_totals.iloc[0] / total_val) if total_val else np.nan
+        top_country_val = float(country_totals.iloc[0]) if len(country_totals) else np.nan
+        top_channel_val = float(channel_totals.iloc[0]) if len(channel_totals) else np.nan
 
-        st.subheader("Recommendations")
-        recs = []
-        if np.isfinite(share_top) and share_top >= 0.5:
-            recs += [
-                "- Prioritize stock + fulfillment reliability in the top country first (protect the anchor market).",
-                "- Scale the next 2–3 countries using the channels that already perform well (see heatmap).",
-            ]
-        else:
-            recs += ["- Use market tiers (anchor / growth / test) and tailor channel strategy per tier."]
-        if neg_lag_rows > 0:
-            recs += ["- Clean shipping dates (negative lag rows) so operational KPIs are trustworthy."]
-        st.markdown("\n".join(recs) if recs else "-")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric(f"Total {metric_name}", f"${total_val:,.0f}")
+        c2.metric("Top Country", top_country)
+        c3.metric("Top Channel", top_channel)
+        c4.metric("Top Country Share", f"{share_top*100:,.1f}%" if np.isfinite(share_top) else "—")
+
+        insights_md = "\n".join([
+            f"- **{top_country}** drives **{share_top*100:.1f}%** of total {metric_name}." if np.isfinite(share_top) else "- Market share concentration can’t be computed (no total).",
+            f"- Top channel by {metric_name} is **{top_channel}**.",
+            f"- Consignment is **{cons_rate:.1f}%** of orders." if np.isfinite(cons_rate) else "- Consignment rate not available.",
+            f"- Shipping has **{neg_lag_rows}** negative lag rows (data issue)." if neg_lag_rows > 0 else "- No negative shipping lag rows detected (or lag not available).",
+        ])
+
+        why_md = "This gives you a fast ‘where to focus’ snapshot before drilling into maps, heatmaps, and time trends."
+
+        recs_md = "\n".join([
+            "- Protect the anchor market (top country) with inventory + fulfillment reliability.",
+            "- Scale the next 2–3 countries using the channels that are already winning in those markets.",
+            "- Clean negative shipping lag rows so ops KPIs are trustworthy." if neg_lag_rows > 0 else "-",
+        ])
+
+        insights_expander("Overview", insights_md, why_md, recs_md)
+        st.divider()
 
     # ======================
     # TAB 1: World Map
@@ -1692,13 +1681,20 @@ with tab_geo:
             st.plotly_chart(fig, use_container_width=True, key=pkey("geo_world"))
             download_html(fig, "01_world_map.html")
 
-            st.markdown("**Insight:** Revenue is concentrated in a few countries (darker areas on the map).")
-            st.markdown("**Recommendation:** Focus spend and inventory on the top markets first, then expand to the next-tier markets.")
-
             st.subheader("Top markets")
             top_tbl = agg.sort_values("value", ascending=False).head(15).copy()
             top_tbl = rank_df(top_tbl)
             st.dataframe(top_tbl.set_index("#")[["Country", "value", "share"]], use_container_width=True)
+
+        insights_md = "- Revenue/value is concentrated in a few countries (darker areas)."
+        why_md = "Maps help you see concentration instantly and identify which markets deserve priority."
+        recs_md = "\n".join([
+            "- Focus spend + inventory on the top markets first.",
+            "- Expand to next-tier markets using the best-performing channel patterns from the heatmap tab."
+        ])
+
+        insights_expander("World Map", insights_md, why_md, recs_md)
+        st.divider()
 
     # ======================
     # TAB 2: Geography × Channels
@@ -1718,9 +1714,6 @@ with tab_geo:
             st.plotly_chart(fig1, use_container_width=True, key=pkey("geo_top_c"))
             download_html(fig1, "02_top_countries.html")
 
-            st.markdown("**Insight:** A small group of countries generates most of the total value.")
-            st.markdown("**Recommendation:** Treat smaller countries as experiments; scale only the ones that show repeatable traction.")
-
         with colB:
             st.subheader(f"{metric_name} by channel")
             ch = channel_totals.reset_index().rename(columns={metric: "value"})
@@ -1731,22 +1724,17 @@ with tab_geo:
             st.plotly_chart(fig2, use_container_width=True, key=pkey("geo_ch_bar"))
             download_html(fig2, "03_channel_bar.html")
 
-            st.markdown("**Insight:** Some channels clearly drive more value than others.")
-            st.markdown("**Recommendation:** Put your best products and marketing behind the top channel(s); keep low channels for niche/seasonal tests.")
-
         st.subheader("Country × Channel heatmap (Top countries)")
         top_idx = country_totals.head(top_n).index
         df_top = df[df["Country"].isin(top_idx)]
         pv = df_top.pivot_table(values=metric, index="Country", columns="Channel", aggfunc="sum", fill_value=0)
+
         if pv.empty:
             st.info("Not enough data for the heatmap in current filters.")
         else:
             fig3 = heatmap_from_pivot(pv, f"Heatmap: {metric_name} ($ CAD)", "$ CAD")
             st.plotly_chart(fig3, use_container_width=True, key=pkey("geo_hm"))
             download_html(fig3, "04_country_channel_heatmap.html")
-
-            st.markdown("**Insight:** The best channel is not the same for every country (hot cells show where value is concentrated).")
-            st.markdown("**Recommendation:** Pick 1–2 winning channels per top country and build the playbook around those.")
 
         st.subheader("Channel mix share by country (Top countries)")
         if not df_top.empty:
@@ -1755,7 +1743,10 @@ with tab_geo:
             mix["share"] = mix["value"] / mix["country_total"]
 
             fig4 = px.bar(
-                mix, x="Country", y="share", color="Channel",
+                mix,
+                x="Country",
+                y="share",
+                color="Channel",
                 barmode="stack",
                 title="Channel Mix (Share of Country Total)",
             )
@@ -1764,8 +1755,22 @@ with tab_geo:
             st.plotly_chart(fig4, use_container_width=True, key=pkey("geo_mix"))
             download_html(fig4, "05_channel_mix_share.html")
 
-            st.markdown("**Insight:** Countries have different channel profiles (some are online-heavy, others partner-heavy).")
-            st.markdown("**Recommendation:** Don’t force a single global channel strategy—optimize per market.")
+        insights_md = "\n".join([
+            "- A small group of countries generates most of the total value.",
+            "- Some channels clearly drive more value than others.",
+            "- Best channel differs by country (heatmap hotspots).",
+            "- Countries have different channel “profiles” (mix share).",
+        ])
+        why_md = "This is the fastest way to choose a country + channel strategy without guessing."
+        recs_md = "\n".join([
+            "- Treat smaller countries as experiments; scale only those with repeatable traction.",
+            "- Put your best products + marketing behind the top channel(s).",
+            "- Pick 1–2 winning channels per top country and build a playbook around them.",
+            "- Don’t force one global channel strategy—optimize per market.",
+        ])
+
+        insights_expander("Geography × Channels", insights_md, why_md, recs_md)
+        st.divider()
 
     # ======================
     # TAB 3: Time
@@ -1773,8 +1778,14 @@ with tab_geo:
     with tabs[3]:
         st.subheader("Time trends")
 
-        st.markdown("### Monthly Trend")
-        ts_df = df.dropna(subset=["Month", metric]).groupby("Month")[metric].sum().reset_index().rename(columns={metric: "value"}).sort_values("Month")
+        ts_df = (
+            df.dropna(subset=["Month", metric])
+            .groupby("Month")[metric].sum()
+            .reset_index()
+            .rename(columns={metric: "value"})
+            .sort_values("Month")
+        )
+
         if ts_df.empty:
             st.info("Not enough Month data in current filters.")
         else:
@@ -1784,25 +1795,18 @@ with tab_geo:
             st.plotly_chart(fig, use_container_width=True, key=pkey("time_month"))
             download_html(fig, "10_monthly_trend.html")
 
-            if len(ts_df) >= 2:
-                last_val = float(ts_df["value"].iloc[-1])
-                prev_val = float(ts_df["value"].iloc[-2])
-                mom = (last_val / prev_val - 1) if prev_val else np.nan
-                if np.isfinite(mom):
-                    st.markdown(f"**Insight:** Latest month changed by **{mom*100:.1f}%** vs previous month.")
-                else:
-                    st.markdown("**Insight:** Monthly movement is visible, but MoM % cannot be computed for the latest point.")
-            else:
-                st.markdown("**Insight:** Not enough months to compute MoM change.")
-            st.markdown("**Recommendation:** Use this to spot spikes/drops and then check which channel/country caused it.")
-
-        st.markdown("### Monthly Trend by Channel (Top 6)")
         ch_tot = df.groupby("Channel")[metric].sum().sort_values(ascending=False)
         top6 = ch_tot.head(6).index.tolist()
-        by_ch = df[df["Channel"].isin(top6)].dropna(subset=["Month", metric]).groupby(["Month", "Channel"])[metric].sum().reset_index().rename(columns={metric: "value"})
-        if by_ch.empty:
-            st.info("Not enough Month data for channel trend in current filters.")
-        else:
+
+        by_ch = (
+            df[df["Channel"].isin(top6)]
+            .dropna(subset=["Month", metric])
+            .groupby(["Month", "Channel"])[metric].sum()
+            .reset_index()
+            .rename(columns={metric: "value"})
+        )
+
+        if not by_ch.empty:
             figc = px.line(by_ch, x="Month", y="value", color="Channel", title=f"Monthly {metric_name} by Channel (Top 6) ($ CAD)")
             figc.update_traces(hovertemplate="Month: %{x|%Y-%m}<br>Value: %{y:$,.0f} CAD<extra></extra>")
             figc = fig_tight(figc, height=420)
@@ -1828,8 +1832,7 @@ with tab_geo:
                 col1, col2 = st.columns(2)
 
                 with col1:
-                    by_country = (lag_df.groupby("Country")["Ship Lag (days)"]
-                                  .mean().sort_values(ascending=False).head(20).reset_index())
+                    by_country = (lag_df.groupby("Country")["Ship Lag (days)"].mean().sort_values(ascending=False).head(20).reset_index())
                     fig1 = px.bar(by_country, x="Country", y="Ship Lag (days)", title="Avg Ship Lag by Country (days)")
                     fig1.update_layout(xaxis={"categoryorder": "total descending"})
                     fig1 = fig_tight(fig1, height=420)
@@ -1837,9 +1840,7 @@ with tab_geo:
                     download_html(fig1, "06_ship_lag_by_country.html")
 
                     pick = st.selectbox("Country → city drilldown", sorted(lag_df["Country"].unique().tolist()), key="lag_pick")
-                    by_city = (lag_df[lag_df["Country"] == pick]
-                               .groupby("City")["Ship Lag (days)"].mean()
-                               .sort_values(ascending=False).head(15).reset_index())
+                    by_city = (lag_df[lag_df["Country"] == pick].groupby("City")["Ship Lag (days)"].mean().sort_values(ascending=False).head(15).reset_index())
                     fig2 = px.bar(by_city, x="City", y="Ship Lag (days)", title=f"Avg Ship Lag by City in {pick} (Top 15)")
                     fig2.update_layout(xaxis={"categoryorder": "total descending"})
                     fig2 = fig_tight(fig2, height=420)
@@ -1877,25 +1878,31 @@ with tab_geo:
                         st.plotly_chart(fig3, use_container_width=True, key=pkey("lag_hm"))
                         download_html(fig3, "08_ship_lag_heatmap_country_city.html")
 
-                    samp = lag_df.copy()
-                    if len(samp) > 2500:
-                        samp = samp.sample(2500, random_state=7)
+        insights_md = "\n".join([
+            "- Monthly movement is visible and can highlight seasonality or campaign effects.",
+            f"- Top channels in this range: **{', '.join(top6)}**." if len(top6) else "- No channel totals available for this range.",
+            "- Shipping lag views show where delays cluster by country/city and where to fix first.",
+        ])
+        why_md = "Time trends help you catch spikes/drops early and connect them to markets/channels. Shipping lag helps ops performance."
+        recs_md = "\n".join([
+            "- When the overall line moves, check the channel trend to find the driver.",
+            "- Set country-level SLAs and fix the biggest delay hotspots first (high lag + meaningful volume).",
+            "- Clean negative lag rows so lag KPIs are reliable.",
+        ])
 
-                    fig4 = px.scatter(
-                        samp, x="Ship Lag (days)", y=metric, color="Channel",
-                        title=f"Ship Lag vs {metric_name} ($ CAD)",
-                        hover_data=["Country", "City"]
-                    )
-                    fig4.update_traces(hovertemplate="Lag: %{x:.0f} days<br>Value: %{y:$,.0f} CAD<extra></extra>")
-                    fig4 = fig_tight(fig4, height=420)
-                    st.plotly_chart(fig4, use_container_width=True, key=pkey("lag_scatter"))
-                    download_html(fig4, "09_ship_lag_scatter.html")
+        insights_expander("Time", insights_md, why_md, recs_md)
+        st.divider()
 
     # ======================
     # TAB 4: Stats
     # ======================
     with tabs[4]:
         st.subheader("Stats")
+
+        try:
+            from scipy import stats
+        except Exception:
+            stats = None
 
         if stats is None:
             st.info("SciPy not available in this environment (stats tests disabled).")
@@ -1904,7 +1911,7 @@ with tab_geo:
             grp = df.groupby("Channel")[metric].apply(lambda x: pd.to_numeric(x, errors="coerce").dropna().values)
             if len(grp) >= 2:
                 _, p = stats.kruskal(*grp.tolist())
-                st.write(f"p-value: **{p_fmt(p)}** → " + ("Yes, typical order values differ across channels." if p < 0.05 else "No strong evidence of difference."))
+                st.write(f"p-value: **{p:.4f}** → " + ("Yes, typical order values differ across channels." if p < 0.05 else "No strong evidence of difference."))
             else:
                 st.write("Not enough data for this test with current filters.")
 
@@ -1915,38 +1922,22 @@ with tab_geo:
             ct = pd.crosstab(tmp["Country (top)"], tmp["Channel"])
             if ct.shape[0] >= 2 and ct.shape[1] >= 2:
                 _, p2, _, _ = stats.chi2_contingency(ct)
-                st.write(f"p-value: **{p_fmt(p2)}** → " + ("Yes, channel mix differs by country." if p2 < 0.05 else "No strong evidence of different mixes."))
+                st.write(f"p-value: **{p2:.4f}** → " + ("Yes, channel mix differs by country." if p2 < 0.05 else "No strong evidence of different mixes."))
             else:
                 st.write("Not enough data for this test with current filters.")
 
-            st.markdown("### 3) Strongest numeric relationships (Spearman)")
-            driver_candidates = [
-                "Discount (CAD)", "Shipping (CAD)", "Taxes Collected (CAD)",
-                "Color Count (#)", "length", "width", "weight"
-            ]
-            if lag_col is not None:
-                driver_candidates.append(lag_col)
+        insights_md = "\n".join([
+            "- Stats help confirm whether chart differences are likely real (not random noise).",
+            "- If significant, you should treat channel/country strategy as market-specific (not one-size-fits-all).",
+        ])
+        why_md = "This prevents overreacting to small samples and supports decisions with evidence."
+        recs_md = "\n".join([
+            "- If channels differ, prioritize the channels with the best value + volume.",
+            "- If mix differs by country, plan channel strategy per market using the heatmap tab.",
+        ])
 
-            drivers = [c for c in driver_candidates if c in df.columns]
-            rows = []
-            for c in drivers:
-                x = pd.to_numeric(df[c], errors="coerce")
-                y = pd.to_numeric(df[metric], errors="coerce")
-                ok = x.notna() & y.notna()
-                if ok.sum() >= 30:
-                    r, pv = stats.spearmanr(x[ok], y[ok])
-                    rows.append((c, float(r), float(pv), int(ok.sum())))
-
-            if rows:
-                out = pd.DataFrame(rows, columns=["variable", "spearman_r", "p_value", "n"])
-                out["abs_r"] = out["spearman_r"].abs()
-                out = out.sort_values("abs_r", ascending=False).drop(columns=["abs_r"]).head(10).reset_index(drop=True)
-                out["spearman_r"] = out["spearman_r"].round(3)
-                out["p_value"] = out["p_value"].apply(p_fmt)
-                out = rank_df(out)
-                st.dataframe(out.set_index("#"), use_container_width=True)
-            else:
-                st.write("Not enough data for this test with current filters.")
+        insights_expander("Stats", insights_md, why_md, recs_md)
+        st.divider()
 
     # ======================
     # TAB 5: Data
@@ -2004,6 +1995,17 @@ with tab_geo:
 
         with st.expander("Preview (first 200 rows)"):
             st.dataframe(df.head(200), use_container_width=True)
+
+        insights_md = "- Tables help you validate the charts and export clean subsets for deeper analysis."
+        why_md = "When you need exact numbers (not just visuals), the KPI tables are the source of truth."
+        recs_md = "\n".join([
+            "- Use Country × Channel KPI to pick which channel to scale in each market.",
+            "- Export the filtered dataset when you want to analyze in Excel/Power BI.",
+        ])
+
+        insights_expander("Data", insights_md, why_md, recs_md)
+        st.divider()
+
 # -----------------------------
 # TAB: Inventory Timing (Seasonality-style: 3 subtabs)
 # -----------------------------
