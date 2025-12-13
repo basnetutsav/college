@@ -852,12 +852,9 @@ with tab_price:
             fig.update_xaxes(tickangle=-25)
             fig = style_fig(fig, height=520)
             st.plotly_chart(fig, use_container_width=True, key=pkey("pd_viz_tab1"))
-        else:
-            st.info("Missing required columns for this chart (need Product Type, Grade, and a price column).")
             with st.expander("Insights - Average Price by Product Type & Grade", expanded=False):
-
-    st.markdown(
-        """
+            st.markdown(
+                """
 **Insights:** Shows how discounting relates to net sale value and highlights if large discounts are driving larger baskets.
 
 **Why it helps:** Helps manage promotions without unintentionally eroding margins.
@@ -866,9 +863,11 @@ with tab_price:
 - If discounts don’t meaningfully lift net sale value, reduce discount depth or tighten eligibility.  
 - Create tiered offers (e.g., discounts only above certain cart values) to protect profitability.
 """
-    )
-
-st.divider()
+            )
+        st.divider()
+        else:
+            st.info("Missing required columns for this chart (need Product Type, Grade, and a price column).")
+        
 
     # -----------------------------
     # TAB 2 (2 visuals)
