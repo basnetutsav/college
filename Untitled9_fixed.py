@@ -1040,8 +1040,6 @@ with tab_price:
 
 ---
 
-### Monthly Average Price Trend by Color Count (Price Power)
-
 **Insights:** Products with higher color counts generally command higher average prices, suggesting added visual complexity increases perceived value.
 
 **Recommendations:**  
