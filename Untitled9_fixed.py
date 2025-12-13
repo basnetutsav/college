@@ -869,6 +869,7 @@ with tab_price:
         else:
             st.info("Missing required columns for this chart (need Product Type, Grade, and a price column).")
 
+
     # -----------------------------
     # TAB 2 (2 visuals)
     # Sales Performance by Dominant Color
