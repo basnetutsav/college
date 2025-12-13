@@ -811,9 +811,30 @@ with tab_price:
     # Unit price (average price): prefer Price (CAD), else revenue_col
     price_col = "Price (CAD)" if safe_col(p_df, "Price (CAD)") else revenue_col
 
-    # Most recent year in filtered view (matches your screenshots like 2025)
-    year_pick = int(p_df["Year"].dropna().max()) if safe_col(p_df, "Year") and p_df["Year"].notna().any() else None
-    p_year = p_df[p_df["Year"] == year_pick].copy() if year_pick is not None else p_df.copy()
+    # Make Year + Month robust for grouping
+    if safe_col(p_df, "Year"):
+        p_df["_YearNum"] = pd.to_numeric(p_df["Year"], errors="coerce")
+    else:
+        p_df["_YearNum"] = np.nan
+
+    if safe_col(p_df, "Month"):
+        if pd.api.types.is_datetime64_any_dtype(p_df["Month"]):
+            p_df["_MonthNum"] = p_df["Month"].dt.month
+        else:
+            p_df["_MonthNum"] = pd.to_numeric(p_df["Month"], errors="coerce")
+    else:
+        p_df["_MonthNum"] = np.nan
+
+    # Most recent year in filtered view
+    year_pick = (
+        int(p_df["_YearNum"].dropna().max())
+        if safe_col(p_df, "_YearNum") and p_df["_YearNum"].notna().any()
+        else None
+    )
+    p_year = p_df[p_df["_YearNum"] == year_pick].copy() if year_pick is not None else p_df.copy()
+
+    month_ticks = list(range(1, 13))
+    month_labels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
     # 5 Tabs
     t1, t2, t3, t4, t5 = st.tabs(
@@ -833,9 +854,13 @@ with tab_price:
     with t1:
         if safe_col(p_df, "Product Type") and safe_col(p_df, "Grade") and safe_col(p_df, price_col):
             tmp = p_df.dropna(subset=["Product Type", "Grade", price_col]).copy()
+
             avg_ptg = (
                 tmp.groupby(["Product Type", "Grade"], as_index=False)
-                .agg(Avg_Price=(price_col, "mean"), Num_Sales=("OrderCount", "sum"))
+                .agg(
+                    Avg_Price=(price_col, "mean"),
+                    Num_Sales=(price_col, "count"),
+                )
             )
 
             fig = px.bar(
@@ -856,19 +881,20 @@ with tab_price:
             with st.expander("Insights - Average Price by Product Type & Grade", expanded=False):
                 st.markdown(
                     """
-**Insights:** Shows how discounting relates to net sale value and highlights if large discounts are driving larger baskets.
+**Insights:** Compares pricing power across Product Types and Grades.
 
-**Why it helps:** Helps manage promotions without unintentionally eroding margins.
+**Why it helps:** Identifies which product/grade combinations command the highest average price.
 
-**Recommendations:**  
-- If discounts don’t meaningfully lift net sale value, reduce discount depth or tighten eligibility.  
-- Create tiered offers (e.g., discounts only above certain cart values) to protect profitability.
+**Recommendations:**
+- Push more inventory/marketing into the highest price-power combinations.
+- If a Grade is underperforming, review discounting, presentation, or bundle strategy.
 """
                 )
 
             st.divider()
         else:
             st.info("Missing required columns for this chart (need Product Type, Grade, and a price column).")
+
     # -----------------------------
     # TAB 2 (2 visuals)
     # Sales Performance by Dominant Color
@@ -918,16 +944,16 @@ with tab_price:
                 fig2 = style_fig(fig2, height=470)
                 st.plotly_chart(fig2, use_container_width=True, key=pkey("pd_viz_tab2_avg"))
 
-         with st.expander("Insights - Average Price by Product Type & Grade", expanded=False):
+            with st.expander("Insights - Sales Performance by Dominant Color", expanded=False):
                 st.markdown(
                     """
-**Insights:** Shows how discounting relates to net sale value and highlights if large discounts are driving larger baskets.
+**Insights:** Shows which colors drive the most revenue vs which colors command higher average price.
 
-**Why it helps:** Helps manage promotions without unintentionally eroding margins.
+**Why it helps:** Separates “volume colors” from “premium colors.”
 
-**Recommendations:**  
-- If discounts don’t meaningfully lift net sale value, reduce discount depth or tighten eligibility.  
-- Create tiered offers (e.g., discounts only above certain cart values) to protect profitability.
+**Recommendations:**
+- Keep strong stock depth for top-revenue colors.
+- Highlight premium colors in marketing/featured collections to lift AOV.
 """
                 )
 
@@ -940,34 +966,35 @@ with tab_price:
     # Monthly Sales Value Vs Average price trend
     # -----------------------------
     with t3:
-        st.markdown("### Monthly Sales Value Vs Average price trend")
+        st.markdown("### Monthly Sales Value Vs Average Price Trend")
 
-        if year_pick is None or not safe_col(p_year, "Month"):
+        if year_pick is None or not safe_col(p_year, "_MonthNum") or p_year["_MonthNum"].notna().sum() == 0:
             st.info("Missing Month/Year info to build monthly trends.")
         else:
             c1, c2 = st.columns(2)
 
             # (1) Monthly Average Price Trend by Grade
             with c1:
-                st.markdown("#### Monthly Average Price (CAD) Trend (Price Power)")
+                st.markdown("#### Monthly Average Price (CAD) Trend (by Grade)")
                 if safe_col(p_year, "Grade") and safe_col(p_year, price_col):
                     g = (
-                        p_year.dropna(subset=["Month", "Grade", price_col])
-                        .groupby(["Month", "Grade"], as_index=False)
+                        p_year.dropna(subset=["_MonthNum", "Grade", price_col])
+                        .groupby(["_MonthNum", "Grade"], as_index=False)
                         .agg(Avg_Price=(price_col, "mean"))
-                        .sort_values("Month")
+                        .sort_values("_MonthNum")
                     )
+
                     fig = px.line(
                         g,
-                        x="Month",
+                        x="_MonthNum",
                         y="Avg_Price",
                         color="Grade",
                         markers=True,
                         title="Average Price Trend",
                     )
-                    fig.update_layout(xaxis_title=f"Date ({year_pick})", yaxis_title="Average Price (CAD)")
+                    fig.update_layout(xaxis_title=f"Month ({year_pick})", yaxis_title="Average Price (CAD)")
                     fig.update_yaxes(tickprefix="$", separatethousands=True)
-                    fig.update_xaxes(tickformat="%b")
+                    fig.update_xaxes(tickmode="array", tickvals=month_ticks, ticktext=month_labels)
                     fig = style_fig(fig, height=470)
                     st.plotly_chart(fig, use_container_width=True, key=pkey("pd_viz_tab3_grade"))
                 else:
@@ -975,47 +1002,47 @@ with tab_price:
 
             # (2) Monthly Average Price Trend by Color Count
             with c2:
-                st.markdown("#### Monthly Average Price (CAD) Trend by Color Count (Price Power)")
+                st.markdown("#### Monthly Average Price (CAD) Trend by Color Count")
                 if safe_col(p_year, "Color Count (#)") and safe_col(p_year, price_col):
-                    cc = p_year.dropna(subset=["Month", "Color Count (#)", price_col]).copy()
-                    cc["Color Count (#)"] = cc["Color Count (#)"].round(0).astype("Int64").astype(str)
+                    cc = p_year.dropna(subset=["_MonthNum", "Color Count (#)", price_col]).copy()
+                    cc["Color Count (#)"] = pd.to_numeric(cc["Color Count (#)"], errors="coerce").round(0).astype("Int64").astype(str)
 
                     g2 = (
-                        cc.groupby(["Month", "Color Count (#)"], as_index=False)
+                        cc.groupby(["_MonthNum", "Color Count (#)"], as_index=False)
                         .agg(Avg_Price=(price_col, "mean"))
-                        .sort_values("Month")
+                        .sort_values("_MonthNum")
                     )
+
                     fig2 = px.line(
                         g2,
-                        x="Month",
+                        x="_MonthNum",
                         y="Avg_Price",
                         color="Color Count (#)",
                         markers=True,
                         title="Average Price Trend by Color Count",
                     )
-                    fig2.update_layout(xaxis_title=f"Date ({year_pick})", yaxis_title="Average Price (CAD)")
+                    fig2.update_layout(xaxis_title=f"Month ({year_pick})", yaxis_title="Average Price (CAD)")
                     fig2.update_yaxes(tickprefix="$", separatethousands=True)
-                    fig2.update_xaxes(tickformat="%b")
+                    fig2.update_xaxes(tickmode="array", tickvals=month_ticks, ticktext=month_labels)
                     fig2 = style_fig(fig2, height=470)
                     st.plotly_chart(fig2, use_container_width=True, key=pkey("pd_viz_tab3_cc"))
+                else:
+                    st.info("Need 'Color Count (#)' and a price column to plot this trend.")
 
-                 with st.expander("Insights - Average Price by Product Type & Grade", expanded=False):
+            with st.expander("Insights - Monthly Average Price Trends", expanded=False):
                 st.markdown(
                     """
-**Insights:** Shows how discounting relates to net sale value and highlights if large discounts are driving larger baskets.
+**Insights:** Tracks price power across months (seasonality) and how it changes by Grade / Color Count.
 
-**Why it helps:** Helps manage promotions without unintentionally eroding margins.
+**Why it helps:** Helps plan pricing + merchandising around peak months.
 
-**Recommendations:**  
-- If discounts don’t meaningfully lift net sale value, reduce discount depth or tighten eligibility.  
-- Create tiered offers (e.g., discounts only above certain cart values) to protect profitability.
+**Recommendations:**
+- If certain months consistently show higher average price, schedule premium launches there.
+- If volatility is high, review discount timing and inventory mix.
 """
                 )
 
             st.divider()
-
-                else:
-                    st.info("Need 'Color Count (#)' and a price column to plot this trend.")
 
     # -----------------------------
     # TAB 4 (3 visuals)
@@ -1024,32 +1051,32 @@ with tab_price:
     with t4:
         st.markdown("### Monthly Total Sales Value Trend (Revenue)")
 
-        if year_pick is None or not safe_col(p_year, "Month"):
+        if year_pick is None or not safe_col(p_year, "_MonthNum") or p_year["_MonthNum"].notna().sum() == 0:
             st.info("Missing Month/Year info to build monthly revenue trends.")
         else:
             top = st.columns(2)
 
             # (1) Monthly Total Sales Value Trend by Grade
             with top[0]:
-                st.markdown("#### Monthly Total Sales Value (CAD) Trend by Grade (Revenue)")
+                st.markdown("#### Monthly Total Sales Value (CAD) Trend by Grade")
                 if safe_col(p_year, "Grade") and safe_col(p_year, revenue_col):
                     gr = (
-                        p_year.dropna(subset=["Month", "Grade", revenue_col])
-                        .groupby(["Month", "Grade"], as_index=False)
+                        p_year.dropna(subset=["_MonthNum", "Grade", revenue_col])
+                        .groupby(["_MonthNum", "Grade"], as_index=False)
                         .agg(Total_Sales=(revenue_col, "sum"))
-                        .sort_values("Month")
+                        .sort_values("_MonthNum")
                     )
                     fig = px.line(
                         gr,
-                        x="Month",
+                        x="_MonthNum",
                         y="Total_Sales",
                         color="Grade",
                         markers=True,
                         title="Total Sales Value Trend (by Grade)",
                     )
-                    fig.update_layout(xaxis_title=f"Date ({year_pick})", yaxis_title="Total Sales Value (CAD)")
+                    fig.update_layout(xaxis_title=f"Month ({year_pick})", yaxis_title="Total Sales Value (CAD)")
                     fig.update_yaxes(tickprefix="$", separatethousands=True)
-                    fig.update_xaxes(tickformat="%b")
+                    fig.update_xaxes(tickmode="array", tickvals=month_ticks, ticktext=month_labels)
                     fig = style_fig(fig, height=420)
                     st.plotly_chart(fig, use_container_width=True, key=pkey("pd_viz_tab4_grade"))
                 else:
@@ -1057,27 +1084,27 @@ with tab_price:
 
             # (2) Monthly Total Sales Value Trend by Color Count
             with top[1]:
-                st.markdown("#### Monthly Total Sales Value (CAD) Trend by Color Count (Revenue)")
+                st.markdown("#### Monthly Total Sales Value (CAD) Trend by Color Count")
                 if safe_col(p_year, "Color Count (#)") and safe_col(p_year, revenue_col):
-                    cc = p_year.dropna(subset=["Month", "Color Count (#)", revenue_col]).copy()
-                    cc["Color Count (#)"] = cc["Color Count (#)"].round(0).astype("Int64").astype(str)
+                    cc = p_year.dropna(subset=["_MonthNum", "Color Count (#)", revenue_col]).copy()
+                    cc["Color Count (#)"] = pd.to_numeric(cc["Color Count (#)"], errors="coerce").round(0).astype("Int64").astype(str)
 
                     cr = (
-                        cc.groupby(["Month", "Color Count (#)"], as_index=False)
+                        cc.groupby(["_MonthNum", "Color Count (#)"], as_index=False)
                         .agg(Total_Sales=(revenue_col, "sum"))
-                        .sort_values("Month")
+                        .sort_values("_MonthNum")
                     )
                     fig2 = px.line(
                         cr,
-                        x="Month",
+                        x="_MonthNum",
                         y="Total_Sales",
                         color="Color Count (#)",
                         markers=True,
                         title="Total Sales Value Trend (by Color Count)",
                     )
-                    fig2.update_layout(xaxis_title=f"Date ({year_pick})", yaxis_title="Total Sales Value (CAD)")
+                    fig2.update_layout(xaxis_title=f"Month ({year_pick})", yaxis_title="Total Sales Value (CAD)")
                     fig2.update_yaxes(tickprefix="$", separatethousands=True)
-                    fig2.update_xaxes(tickformat="%b")
+                    fig2.update_xaxes(tickmode="array", tickvals=month_ticks, ticktext=month_labels)
                     fig2 = style_fig(fig2, height=420)
                     st.plotly_chart(fig2, use_container_width=True, key=pkey("pd_viz_tab4_cc"))
                 else:
@@ -1087,51 +1114,58 @@ with tab_price:
             st.markdown("#### Monthly Total Sales Value (CAD) Trend (Overall)")
             if safe_col(p_year, revenue_col):
                 overall = (
-                    p_year.dropna(subset=["Month", revenue_col])
-                    .groupby("Month", as_index=False)
+                    p_year.dropna(subset=["_MonthNum", revenue_col])
+                    .groupby("_MonthNum", as_index=False)
                     .agg(Total_Sales=(revenue_col, "sum"))
-                    .sort_values("Month")
+                    .sort_values("_MonthNum")
                 )
                 fig3 = px.line(
                     overall,
-                    x="Month",
+                    x="_MonthNum",
                     y="Total_Sales",
                     markers=True,
                     title="Overall Total Sales Value Trend",
                 )
-                fig3.update_layout(xaxis_title=f"Date ({year_pick})", yaxis_title="Total Sales Value (CAD)")
+                fig3.update_layout(xaxis_title=f"Month ({year_pick})", yaxis_title="Total Sales Value (CAD)")
                 fig3.update_yaxes(tickprefix="$", separatethousands=True)
-                fig3.update_xaxes(tickformat="%b")
+                fig3.update_xaxes(tickmode="array", tickvals=month_ticks, ticktext=month_labels)
                 fig3 = style_fig(fig3, height=520)
                 st.plotly_chart(fig3, use_container_width=True, key=pkey("pd_viz_tab4_overall"))
+            else:
+                st.info("Need a revenue column to plot the overall trend.")
 
-             with st.expander("Insights - Average Price by Product Type & Grade", expanded=False):
+            with st.expander("Insights - Monthly Revenue Trends", expanded=False):
                 st.markdown(
                     """
-**Insights:** Shows how discounting relates to net sale value and highlights if large discounts are driving larger baskets.
+**Insights:** Shows seasonality in total sales value and which segments drive monthly revenue.
 
-**Why it helps:** Helps manage promotions without unintentionally eroding margins.
+**Why it helps:** Helps plan inventory, staffing, and promo calendar.
 
-**Recommendations:**  
-- If discounts don’t meaningfully lift net sale value, reduce discount depth or tighten eligibility.  
-- Create tiered offers (e.g., discounts only above certain cart values) to protect profitability.
+**Recommendations:**
+- Replicate strategies used in peak months (channels, campaigns, featured products).
+- If certain segments are declining, investigate pricing, availability, and discount intensity.
 """
                 )
 
             st.divider()
-            
-            else:
-                st.info("Need a revenue column to plot the overall trend.")
 
     # -----------------------------
-    # TAB 5 (1 visual, but 2-panel layout like your screenshot)
+    # TAB 5 (1 visual, 2-panel layout)
     # Next Fiscal Year Seasonal Forecast Model (30% Growth)
     # -----------------------------
     with t5:
         st.markdown("### Next Fiscal Year Seasonal Forecast Model (30% Growth)")
-        st.caption("Based on the Google: 30% is the significant increase yearly driven by Rarity and Diminishing Supply.")
+        st.caption("Assumes the next year ranges between repeating last year’s seasonality (lower bound) and +30% growth (upper bound).")
 
-        if safe_col(p_df, "Product Type") and safe_col(p_df, "Grade") and safe_col(p_df, price_col) and safe_col(p_df, "Month") and safe_col(p_df, "Year"):
+        req_ok = (
+            safe_col(p_df, "Product Type")
+            and safe_col(p_df, "Grade")
+            and safe_col(p_df, price_col)
+            and safe_col(p_df, "_MonthNum")
+            and safe_col(p_df, "_YearNum")
+        )
+
+        if req_ok:
             left, right = st.columns(2)
 
             prod_opts = sorted([x for x in p_df["Product Type"].dropna().unique().tolist() if str(x).strip() != ""])
@@ -1141,82 +1175,86 @@ with tab_price:
             sel_grade = st.selectbox("Select Grade:", options=grade_opts, key="pd_fc_grade")
 
             sub = p_df[(p_df["Product Type"] == sel_prod) & (p_df["Grade"] == sel_grade)].copy()
+
             if sub.empty:
                 st.info("No rows match that Product Type + Grade under current filters.")
             else:
-                base_year = int(sub["Year"].dropna().max())
+                base_year = int(sub["_YearNum"].dropna().max())
                 forecast_year = base_year + 1
 
-                # Actual series (base year)
+                # Actual series (base year) on month numbers
                 actual = (
-                    sub[sub["Year"] == base_year]
-                    .dropna(subset=["Month", price_col])
-                    .groupby("Month", as_index=False)
+                    sub[sub["_YearNum"] == base_year]
+                    .dropna(subset=["_MonthNum", price_col])
+                    .groupby("_MonthNum", as_index=False)
                     .agg(Avg_Price=(price_col, "mean"))
-                    .sort_values("Month")
+                    .sort_values("_MonthNum")
                 )
 
-                # Ensure 12-month frame for consistent seasonality mapping
-                months_base = pd.date_range(f"{base_year}-01-01", periods=12, freq="MS")
-                actual_full = pd.DataFrame({"Month": months_base}).merge(actual, on="Month", how="left")
+                # Ensure 12-month frame
+                actual_full = pd.DataFrame({"_MonthNum": month_ticks}).merge(actual, on="_MonthNum", how="left")
 
-                # Forecast: repeat seasonality (lower bound) + 30% growth (upper bound)
-                months_fc = pd.date_range(f"{forecast_year}-01-01", periods=12, freq="MS")
-                fc = pd.DataFrame({"Month": months_fc})
-                fc["Lower Bound"] = actual_full["Avg_Price"].values
-                fc["Upper Bound"] = actual_full["Avg_Price"].values * 1.30
+                # Forecast: repeat seasonality (lower) + 30% growth (upper)
+                fc = actual_full.copy()
+                fc["Lower Bound"] = fc["Avg_Price"]
+                fc["Upper Bound"] = fc["Avg_Price"] * 1.30
 
                 with left:
                     fig_a = px.line(
                         actual_full,
-                        x="Month",
+                        x="_MonthNum",
                         y="Avg_Price",
                         markers=True,
                         title=f"Actual Monthly Average Price ({base_year})<br>{sel_prod} ({sel_grade})",
                     )
-                    fig_a.update_layout(xaxis_title="Date", yaxis_title="Average Price (CAD)")
+                    fig_a.update_layout(xaxis_title="Month", yaxis_title="Average Price (CAD)")
                     fig_a.update_yaxes(tickprefix="$", separatethousands=True)
-                    fig_a.update_xaxes(tickformat="%b %Y")
+                    fig_a.update_xaxes(tickmode="array", tickvals=month_ticks, ticktext=month_labels)
                     fig_a = style_fig(fig_a, height=520)
                     st.plotly_chart(fig_a, use_container_width=True, key=pkey("pd_fc_actual"))
 
                 with right:
                     fig_f = go.Figure()
-                    fig_f.add_trace(go.Scatter(
-                        x=fc["Month"], y=fc["Lower Bound"],
-                        mode="lines+markers",
-                        name=f"{forecast_year} Forecast: Lower Bound"
-                    ))
-                    fig_f.add_trace(go.Scatter(
-                        x=fc["Month"], y=fc["Upper Bound"],
-                        mode="lines+markers",
-                        name=f"{forecast_year} Forecast: Upper Bound"
-                    ))
+                    fig_f.add_trace(
+                        go.Scatter(
+                            x=fc["_MonthNum"],
+                            y=fc["Lower Bound"],
+                            mode="lines+markers",
+                            name=f"{forecast_year} Forecast: Lower Bound",
+                        )
+                    )
+                    fig_f.add_trace(
+                        go.Scatter(
+                            x=fc["_MonthNum"],
+                            y=fc["Upper Bound"],
+                            mode="lines+markers",
+                            name=f"{forecast_year} Forecast: Upper Bound",
+                        )
+                    )
                     fig_f.update_layout(
                         title=f"Forecast Monthly Average Price ({forecast_year})",
-                        xaxis_title="Date",
+                        xaxis_title="Month",
                         yaxis_title="Average Price (CAD)",
                     )
                     fig_f.update_yaxes(tickprefix="$", separatethousands=True)
-                    fig_f.update_xaxes(tickformat="%b %Y")
+                    fig_f.update_xaxes(tickmode="array", tickvals=month_ticks, ticktext=month_labels)
                     fig_f = style_fig(fig_f, height=520)
                     st.plotly_chart(fig_f, use_container_width=True, key=pkey("pd_fc_forecast"))
 
-         with st.expander("Insights - Average Price by Product Type & Grade", expanded=False):
+            with st.expander("Insights - Next Fiscal Year Forecast", expanded=False):
                 st.markdown(
                     """
-**Insights:** Shows how discounting relates to net sale value and highlights if large discounts are driving larger baskets.
+**Insights:** Uses last year’s monthly seasonality as a baseline and applies a +30% upper scenario.
 
-**Why it helps:** Helps manage promotions without unintentionally eroding margins.
+**Why it helps:** Gives a planning range (conservative vs aggressive) for pricing expectations.
 
-**Recommendations:**  
-- If discounts don’t meaningfully lift net sale value, reduce discount depth or tighten eligibility.  
-- Create tiered offers (e.g., discounts only above certain cart values) to protect profitability.
+**Recommendations:**
+- Use the upper bound for stretch targets and inventory planning.
+- Use the lower bound for minimum viable pricing and cash-flow planning.
 """
                 )
 
             st.divider()
-        
         else:
             st.info("Missing required columns for forecasting (need Product Type, Grade, Month, Year, and a price column).")
 
