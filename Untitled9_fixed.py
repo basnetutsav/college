@@ -792,30 +792,30 @@ with tab_overview:
         bullets.append(f"- Average time to ship is **{cur_avg_ship:.1f} days** (use *Inventory Timing* to see channel differences).")
     bullets.append("- Use *Price Drivers* to see which attributes push price up/down, and *Compliance* to spot risk gaps.")
     st.markdown("\n".join(bullets))
-
 # -----------------------------
-# TAB: Price Drivers / Visualization (REPLACED to match your 5-tab layout + 9 visuals)
+# TAB: Price Drivers / Visualization (5 tabs + 9 visuals)
 # -----------------------------
 with tab_price:
     st.subheader("Price Drivers / Visualization")
 
     p_df = f.copy()
 
-    # Use Net Sales if available (best “revenue after discount”), else fallback
+    # Revenue (total sales value): prefer Net Sales, else Price
     if safe_col(p_df, "Net Sales"):
         revenue_col = "Net Sales"
     elif safe_col(p_df, "Price (CAD)"):
         revenue_col = "Price (CAD)"
     else:
-        revenue_col = metric_col  # last resort
+        revenue_col = metric_col  # fallback
 
-    price_col = revenue_col  # “Average Price (Unit Value)” in your screenshots
+    # Unit price (average price): prefer Price (CAD), else revenue_col
+    price_col = "Price (CAD)" if safe_col(p_df, "Price (CAD)") else revenue_col
 
-    # Most recent year in the filtered view (matches your screenshots showing 2025)
+    # Most recent year in filtered view (matches your screenshots like 2025)
     year_pick = int(p_df["Year"].dropna().max()) if safe_col(p_df, "Year") and p_df["Year"].notna().any() else None
     p_year = p_df[p_df["Year"] == year_pick].copy() if year_pick is not None else p_df.copy()
 
-    # 5 Tabs (exact structure you requested)
+    # 5 Tabs
     t1, t2, t3, t4, t5 = st.tabs(
         [
             "Average Price by Product Type & Grade",
@@ -825,6 +825,7 @@ with tab_price:
             "Next Fiscal Year Seasonal Forecast (30% Growth)",
         ]
     )
+
     # -----------------------------
     # TAB 1 (1 visual)
     # Average Price by Product Type & Grade
@@ -868,8 +869,6 @@ with tab_price:
             st.divider()
         else:
             st.info("Missing required columns for this chart (need Product Type, Grade, and a price column).")
-
-
     # -----------------------------
     # TAB 2 (2 visuals)
     # Sales Performance by Dominant Color
