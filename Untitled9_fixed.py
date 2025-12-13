@@ -917,6 +917,21 @@ with tab_price:
                 fig2.update_xaxes(tickangle=-60)
                 fig2 = style_fig(fig2, height=470)
                 st.plotly_chart(fig2, use_container_width=True, key=pkey("pd_viz_tab2_avg"))
+
+         with st.expander("Insights - Average Price by Product Type & Grade", expanded=False):
+                st.markdown(
+                    """
+**Insights:** Shows how discounting relates to net sale value and highlights if large discounts are driving larger baskets.
+
+**Why it helps:** Helps manage promotions without unintentionally eroding margins.
+
+**Recommendations:**  
+- If discounts don’t meaningfully lift net sale value, reduce discount depth or tighten eligibility.  
+- Create tiered offers (e.g., discounts only above certain cart values) to protect profitability.
+"""
+                )
+
+            st.divider()
         else:
             st.info("Missing 'Dominant Color' or required price/revenue columns for this tab.")
 
@@ -983,6 +998,22 @@ with tab_price:
                     fig2.update_xaxes(tickformat="%b")
                     fig2 = style_fig(fig2, height=470)
                     st.plotly_chart(fig2, use_container_width=True, key=pkey("pd_viz_tab3_cc"))
+
+                 with st.expander("Insights - Average Price by Product Type & Grade", expanded=False):
+                st.markdown(
+                    """
+**Insights:** Shows how discounting relates to net sale value and highlights if large discounts are driving larger baskets.
+
+**Why it helps:** Helps manage promotions without unintentionally eroding margins.
+
+**Recommendations:**  
+- If discounts don’t meaningfully lift net sale value, reduce discount depth or tighten eligibility.  
+- Create tiered offers (e.g., discounts only above certain cart values) to protect profitability.
+"""
+                )
+
+            st.divider()
+
                 else:
                     st.info("Need 'Color Count (#)' and a price column to plot this trend.")
 
@@ -1073,6 +1104,22 @@ with tab_price:
                 fig3.update_xaxes(tickformat="%b")
                 fig3 = style_fig(fig3, height=520)
                 st.plotly_chart(fig3, use_container_width=True, key=pkey("pd_viz_tab4_overall"))
+
+             with st.expander("Insights - Average Price by Product Type & Grade", expanded=False):
+                st.markdown(
+                    """
+**Insights:** Shows how discounting relates to net sale value and highlights if large discounts are driving larger baskets.
+
+**Why it helps:** Helps manage promotions without unintentionally eroding margins.
+
+**Recommendations:**  
+- If discounts don’t meaningfully lift net sale value, reduce discount depth or tighten eligibility.  
+- Create tiered offers (e.g., discounts only above certain cart values) to protect profitability.
+"""
+                )
+
+            st.divider()
+            
             else:
                 st.info("Need a revenue column to plot the overall trend.")
 
@@ -1154,6 +1201,22 @@ with tab_price:
                     fig_f.update_xaxes(tickformat="%b %Y")
                     fig_f = style_fig(fig_f, height=520)
                     st.plotly_chart(fig_f, use_container_width=True, key=pkey("pd_fc_forecast"))
+
+         with st.expander("Insights - Average Price by Product Type & Grade", expanded=False):
+                st.markdown(
+                    """
+**Insights:** Shows how discounting relates to net sale value and highlights if large discounts are driving larger baskets.
+
+**Why it helps:** Helps manage promotions without unintentionally eroding margins.
+
+**Recommendations:**  
+- If discounts don’t meaningfully lift net sale value, reduce discount depth or tighten eligibility.  
+- Create tiered offers (e.g., discounts only above certain cart values) to protect profitability.
+"""
+                )
+
+            st.divider()
+        
         else:
             st.info("Missing required columns for forecasting (need Product Type, Grade, Month, Year, and a price column).")
 
