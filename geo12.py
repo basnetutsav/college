@@ -665,7 +665,7 @@ st.markdown("---")
     tab_ownership,
     tab_seasonality,
     tab_compliance,
-    tab_stats,   # ✅ NEW (between Compliance and All Data)
+    tab_stats,   # ✅  YOOOOOOOOOOOOOOOOOO NEW (between Compliance and All Data)
     tab_data,
 ) = st.tabs(
     [
@@ -678,7 +678,7 @@ st.markdown("---")
         "Ownership",
         "Seasonality",
         "Compliance",
-        "Stats",     # ✅ NEW (between Compliance and All Data)
+        "Stats",     # ✅ YOOOOOOOOOOOOOOOOOOOO NEW (between Compliance and All Data)
         "All Data",
     ]
 )
@@ -2156,7 +2156,7 @@ with tab_segments:
             key="dl_segments",
         )
 # -----------------------------
-# TAB: Geography & Channels (Price-Drivers style layout)
+# TAB: Geography & Channels (Price-Drivers style layout)  YOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO
 # -----------------------------
 with tab_geo:
     st.subheader("Geography & Channels")
@@ -2668,7 +2668,7 @@ with tab_geo:
                 insights_expander("Shipping Lag", bullet(lag_ins), bullet(lag_why), bullet(lag_recs))
                 st.divider()
 
-
+#YOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO
 # -----------------------------
 # TAB 6: Inventory Timing 
 # -----------------------------
@@ -4860,7 +4860,7 @@ with tab_compliance:
 """
         render_dir_expander_metrics("Chart 7", definitions_md, metrics, recs_md)
 # ======================
-# TAB: Stats (MAIN TAB) — tables + dynamic insights (no chart/visual changes)
+# TAB: Stats (MAIN TAB) — tables + dynamic insights (no chart/visual changes)  YOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO
 # ======================
 with tab_stats:
     st.subheader("Stats")
@@ -5231,7 +5231,7 @@ with tab_stats:
         insights_expander("Shipping Lag Relationship", insights_md, why_md, recs_md)
 
     st.divider()
-
+#YOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO
 
 # -----------------------------
 # TAB: All Data
