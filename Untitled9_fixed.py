@@ -3903,7 +3903,6 @@ with tab_ownership:
 # TAB: Seasonality (upgrade)
 # -----------------------------
 with tab_seasonality:
-    st.subheader("Inventory Timing")
     st.markdown("## Seasonality Analysis")
     st.caption("Visualization")
 
