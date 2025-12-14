@@ -1,3 +1,9 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+# In[ ]:
+
+
 import io
 import math
 import pandas as pd
@@ -447,6 +453,8 @@ def load_data(uploaded_file=None):
     df["Is Export"] = df["Country"].ne("Canada")
 
     return df
+
+
 # -----------------------------
 # Sidebar: Data source + Filters
 # -----------------------------
@@ -461,30 +469,19 @@ uploaded = st.sidebar.file_uploader(
 
 df = load_data(uploaded_file=uploaded)
 
-# Make sure Sale Date is datetime
-df["Sale Date"] = pd.to_datetime(df["Sale Date"], errors="coerce")
+min_date = df["Date"].min()
+max_date = df["Date"].max()
+if pd.isna(min_date) or pd.isna(max_date):
+    st.error("❌ 'Date' column has no valid dates.")
+    st.stop()
 
-# Safe min/max (drop NaT)
-d = df["Sale Date"].dropna()
-if d.empty:
-    st.sidebar.warning("No valid Sale Date values found.")
-    cur_start = cur_end = None
-else:
-    min_d = d.min().date()
-    max_d = d.max().date()
-
-    cur_start, cur_end = st.sidebar.slider(
-        "Sale Date range",
-        min_value=min_d,
-        max_value=max_d,
-        value=(min_d, max_d),
-        format="YYYY/MM/DD",
-    )
-
-    # Apply filter (inclusive)
-    start_ts = pd.Timestamp(cur_start)
-    end_ts = pd.Timestamp(cur_end) + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
-    df = df[df["Sale Date"].between(start_ts, end_ts)]
+date_range = st.sidebar.date_input(
+    "Sale Date range",
+    value=(min_date.date(), max_date.date()),
+    min_value=min_date.date(),
+    max_value=max_date.date(),
+    key="date_range",
+)
 
 # Core filters
 country_options = sorted(df["Country"].dropna().unique())
@@ -604,7 +601,7 @@ else:
     prev_cons_share = prev_avg_ship = np.nan
 
 k1, k2, k3, k4, k5, k6 = st.columns(6)
-    
+
 with k1:
     st.metric(
         "Total Net Sales",
@@ -2228,11 +2225,7 @@ with tab_geo:
                 pv,
                 aspect="auto",
                 title=title,
-                labels=dict(
-                    x=pv.columns.name or "Channel",
-                    y=pv.index.name or "Country",
-                    color=unit,
-                ),
+                labels=dict(x=pv.columns.name or "Channel", y=pv.index.name or "Country", color=unit),
             )
             return fig_tight(hm, height=520)
 
@@ -2261,22 +2254,51 @@ with tab_geo:
         neg_lag_rows = int((pd.to_numeric(df[lag_col], errors="coerce") < 0).sum())
 
     # -----------------------------
-    # Sub-tabs (UPDATED)
-    # - Removed: Overview
-    # - Renamed: Time -> Shipping Lag
-    # - Removed: Data
+    # Tabs (your requested ones)
     # -----------------------------
-    tabs = st.tabs(["World Map", "Geography × Channels", "Shipping Lag", "Stats"])
+    tabs = st.tabs(["Overview", "World Map", "Geography × Channels", "Time", "Stats", "Data"])
 
     # ======================
-    # TAB 0: World Map
+    # TAB 0: Overview
     # ======================
     with tabs[0]:
+        total_val = float(country_totals.sum()) if len(country_totals) else 0.0
+        share_top = float(country_totals.iloc[0] / total_val) if total_val else np.nan
+        top_country_val = float(country_totals.iloc[0]) if len(country_totals) else np.nan
+        top_channel_val = float(channel_totals.iloc[0]) if len(channel_totals) else np.nan
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric(f"Total {metric_name}", f"${total_val:,.0f}")
+        c2.metric("Top Country", top_country)
+        c3.metric("Top Channel", top_channel)
+        c4.metric("Top Country Share", f"{share_top*100:,.1f}%" if np.isfinite(share_top) else "—")
+
+        insights_md = "\n".join([
+            f"- **{top_country}** drives **{share_top*100:.1f}%** of total {metric_name}." if np.isfinite(share_top) else "- Market share concentration can’t be computed (no total).",
+            f"- Top channel by {metric_name} is **{top_channel}**.",
+            f"- Consignment is **{cons_rate:.1f}%** of orders." if np.isfinite(cons_rate) else "- Consignment rate not available.",
+            f"- Shipping has **{neg_lag_rows}** negative lag rows (data issue)." if neg_lag_rows > 0 else "- No negative shipping lag rows detected (or lag not available).",
+        ])
+
+        why_md = "This gives you a fast ‘where to focus’ snapshot before drilling into maps, heatmaps, and time trends."
+
+        recs_md = "\n".join([
+            "- Protect the anchor market (top country) with inventory + fulfillment reliability.",
+            "- Scale the next 2–3 countries using the channels that are already winning in those markets.",
+            "- Clean negative shipping lag rows so ops KPIs are trustworthy." if neg_lag_rows > 0 else "-",
+        ])
+
+        insights_expander("Overview", insights_md, why_md, recs_md)
+        st.divider()
+
+    # ======================
+    # TAB 1: World Map
+    # ======================
+    with tabs[1]:
         st.subheader(f"World map - {metric_name} ($ CAD)")
 
         agg = country_totals.reset_index().rename(columns={metric: "value"})
-        total_val = float(agg["value"].sum()) if not agg.empty else 0.0
-        agg["share"] = np.where(total_val > 0, agg["value"] / total_val, np.nan)
+        agg["share"] = agg["value"] / agg["value"].sum()
 
         if agg.empty:
             st.info("No country data available for current filters.")
@@ -2313,9 +2335,9 @@ with tab_geo:
         st.divider()
 
     # ======================
-    # TAB 1: Geography × Channels
+    # TAB 2: Geography × Channels
     # ======================
-    with tabs[1]:
+    with tabs[2]:
         top_n = st.slider("Top N countries", 3, 30, 12, key="geo_top_n")
 
         colA, colB = st.columns(2)
@@ -2352,12 +2374,30 @@ with tab_geo:
             st.plotly_chart(fig3, use_container_width=True, key=pkey("geo_hm"))
             download_html(fig3, "04_country_channel_heatmap.html")
 
-        # REMOVED: "Channel mix share by country (Top countries)"
+        st.subheader("Channel mix share by country (Top countries)")
+        if not df_top.empty:
+            mix = df_top.groupby(["Country", "Channel"])[metric].sum().reset_index().rename(columns={metric: "value"})
+            mix["country_total"] = mix.groupby("Country")["value"].transform("sum")
+            mix["share"] = mix["value"] / mix["country_total"]
+
+            fig4 = px.bar(
+                mix,
+                x="Country",
+                y="share",
+                color="Channel",
+                barmode="stack",
+                title="Channel Mix (Share of Country Total)",
+            )
+            fig4.update_layout(yaxis_tickformat=".0%", xaxis={"categoryorder": "total descending"})
+            fig4 = fig_tight(fig4, height=520)
+            st.plotly_chart(fig4, use_container_width=True, key=pkey("geo_mix"))
+            download_html(fig4, "05_channel_mix_share.html")
 
         insights_md = "\n".join([
             "- A small group of countries generates most of the total value.",
             "- Some channels clearly drive more value than others.",
             "- Best channel differs by country (heatmap hotspots).",
+            "- Countries have different channel “profiles” (mix share).",
         ])
         why_md = "This is the fastest way to choose a country + channel strategy without guessing."
         recs_md = "\n".join([
@@ -2371,9 +2411,47 @@ with tab_geo:
         st.divider()
 
     # ======================
-    # TAB 2: Shipping Lag  (RENAMED from Time, and time-trends removed)
+    # TAB 3: Time
     # ======================
-    with tabs[2]:
+    with tabs[3]:
+        st.subheader("Time trends")
+
+        ts_df = (
+            df.dropna(subset=["Month", metric])
+            .groupby("Month")[metric].sum()
+            .reset_index()
+            .rename(columns={metric: "value"})
+            .sort_values("Month")
+        )
+
+        if ts_df.empty:
+            st.info("Not enough Month data in current filters.")
+        else:
+            fig = px.line(ts_df, x="Month", y="value", title=f"Monthly {metric_name} ($ CAD)")
+            fig.update_traces(hovertemplate="Month: %{x|%Y-%m}<br>Value: %{y:$,.0f} CAD<extra></extra>")
+            fig = fig_tight(fig, height=420)
+            st.plotly_chart(fig, use_container_width=True, key=pkey("time_month"))
+            download_html(fig, "10_monthly_trend.html")
+
+        ch_tot = df.groupby("Channel")[metric].sum().sort_values(ascending=False)
+        top6 = ch_tot.head(6).index.tolist()
+
+        by_ch = (
+            df[df["Channel"].isin(top6)]
+            .dropna(subset=["Month", metric])
+            .groupby(["Month", "Channel"])[metric].sum()
+            .reset_index()
+            .rename(columns={metric: "value"})
+        )
+
+        if not by_ch.empty:
+            figc = px.line(by_ch, x="Month", y="value", color="Channel", title=f"Monthly {metric_name} by Channel (Top 6) ($ CAD)")
+            figc.update_traces(hovertemplate="Month: %{x|%Y-%m}<br>Value: %{y:$,.0f} CAD<extra></extra>")
+            figc = fig_tight(figc, height=420)
+            st.plotly_chart(figc, use_container_width=True, key=pkey("time_ch"))
+            download_html(figc, "11_monthly_trend_by_channel_top6.html")
+
+        st.divider()
         st.subheader("Shipping lag")
 
         if lag_col is None or lag_col not in df.columns:
@@ -2392,32 +2470,15 @@ with tab_geo:
                 col1, col2 = st.columns(2)
 
                 with col1:
-                    by_country = (
-                        lag_df.groupby("Country")["Ship Lag (days)"]
-                        .mean()
-                        .sort_values(ascending=False)
-                        .head(20)
-                        .reset_index()
-                    )
+                    by_country = (lag_df.groupby("Country")["Ship Lag (days)"].mean().sort_values(ascending=False).head(20).reset_index())
                     fig1 = px.bar(by_country, x="Country", y="Ship Lag (days)", title="Avg Ship Lag by Country (days)")
                     fig1.update_layout(xaxis={"categoryorder": "total descending"})
                     fig1 = fig_tight(fig1, height=420)
                     st.plotly_chart(fig1, use_container_width=True, key=pkey("lag_country"))
                     download_html(fig1, "06_ship_lag_by_country.html")
 
-                    pick = st.selectbox(
-                        "Country → city drilldown",
-                        sorted(lag_df["Country"].unique().tolist()),
-                        key="lag_pick",
-                    )
-                    by_city = (
-                        lag_df[lag_df["Country"] == pick]
-                        .groupby("City")["Ship Lag (days)"]
-                        .mean()
-                        .sort_values(ascending=False)
-                        .head(15)
-                        .reset_index()
-                    )
+                    pick = st.selectbox("Country → city drilldown", sorted(lag_df["Country"].unique().tolist()), key="lag_pick")
+                    by_city = (lag_df[lag_df["Country"] == pick].groupby("City")["Ship Lag (days)"].mean().sort_values(ascending=False).head(15).reset_index())
                     fig2 = px.bar(by_city, x="City", y="Ship Lag (days)", title=f"Avg Ship Lag by City in {pick} (Top 15)")
                     fig2.update_layout(xaxis={"categoryorder": "total descending"})
                     fig2 = fig_tight(fig2, height=420)
@@ -2428,16 +2489,12 @@ with tab_geo:
                     min_orders = st.slider("Minimum orders per Country+City", 2, 15, 5, key="lag_min_orders")
 
                     order_col = "Sale ID" if "Sale ID" in lag_df.columns else metric
-                    cc = (
-                        lag_df.groupby(["Country", "City"])
-                        .agg(
-                            orders=(order_col, "count"),
-                            avg_lag=("Ship Lag (days)", "mean"),
-                            med_lag=("Ship Lag (days)", "median"),
-                            total_metric=(metric, "sum"),
-                        )
-                        .reset_index()
-                    )
+                    cc = (lag_df.groupby(["Country", "City"]).agg(
+                        orders=(order_col, "count"),
+                        avg_lag=("Ship Lag (days)", "mean"),
+                        med_lag=("Ship Lag (days)", "median"),
+                        total_metric=(metric, "sum")
+                    ).reset_index())
                     cc = cc[cc["orders"] >= min_orders].copy()
                     cc = cc.sort_values(["avg_lag", "orders"], ascending=[False, False]).head(25)
 
@@ -2446,14 +2503,11 @@ with tab_geo:
                     cc["med_lag"] = cc["med_lag"].round(1)
 
                     cc = rank_df(cc).rename(columns={"total_metric": f"Total ({metric_name})"})
-                    st.dataframe(
-                        cc.set_index("#")[["Country", "City", "orders", "avg_lag", "med_lag", f"Total ({metric_name})"]],
-                        use_container_width=True,
-                    )
+                    st.dataframe(cc.set_index("#")[["Country", "City", "orders", "avg_lag", "med_lag", f"Total ({metric_name})"]], use_container_width=True)
 
-                    top_countries = lag_df.groupby("Country")[metric].sum().sort_values(ascending=False).head(12).index
+                    top_countries = (lag_df.groupby("Country")[metric].sum().sort_values(ascending=False).head(12).index)
                     sub = lag_df[lag_df["Country"].isin(top_countries)].copy()
-                    top_cities = sub.groupby("City")[metric].sum().sort_values(ascending=False).head(20).index
+                    top_cities = (sub.groupby("City")[metric].sum().sort_values(ascending=False).head(20).index)
                     sub = sub[sub["City"].isin(top_cities)].copy()
 
                     pv2 = sub.pivot_table(values="Ship Lag (days)", index="Country", columns="City", aggfunc="mean")
@@ -2463,239 +2517,304 @@ with tab_geo:
                         download_html(fig3, "08_ship_lag_heatmap_country_city.html")
 
         insights_md = "\n".join([
+            "- Monthly movement is visible and can highlight seasonality or campaign effects.",
+            f"- Top channels in this range: **{', '.join(top6)}**." if len(top6) else "- No channel totals available for this range.",
             "- Shipping lag views show where delays cluster by country/city and where to fix first.",
-            f"- Negative lag rows detected: **{neg_lag_rows}** (treat as data issue)." if neg_lag_rows > 0 else "- No negative lag rows detected (or lag not available).",
         ])
-        why_md = "This helps ops performance by showing where fulfillment delays are worst and where volume makes it worth fixing."
+        why_md = "Time trends help you catch spikes/drops early and connect them to markets/channels. Shipping lag helps ops performance."
         recs_md = "\n".join([
-            "- Fix the biggest delay hotspots first (high lag + meaningful volume).",
-            "- Set country-level SLAs and monitor trend after changes.",
+            "- When the overall line moves, check the channel trend to find the driver.",
+            "- Set country-level SLAs and fix the biggest delay hotspots first (high lag + meaningful volume).",
             "- Clean negative lag rows so lag KPIs are reliable.",
         ])
 
-        insights_expander("Shipping Lag", insights_md, why_md, recs_md)
+        insights_expander("Time", insights_md, why_md, recs_md)
         st.divider()
 
-    # ======================
-    # TAB 3: Stats  (WITH Excel-style tables)
-    # ======================
-    with tabs[3]:
-        st.subheader("Stats")
+   # ======================
+# TAB 4: Stats  (WITH Excel-style tables)
+# ======================
+with tabs[4]:
+    st.subheader("Stats")
 
-        # SciPy (safe)
+    # local p-value formatter (safe)
+    def _p_fmt(v):
+        try:
+            v = float(v)
+        except Exception:
+            return "—"
+        if not np.isfinite(v):
+            return "—"
+        if v < 1e-4:
+            return "<0.0001"
+        return f"{v:.4f}"
+
+    # numeric metric column (safe)
+    df_stat = df.copy()
+    df_stat[metric] = pd.to_numeric(df_stat[metric], errors="coerce")
+
+    # -----------------------------
+    # 1) Channel value differences (Kruskal) + Excel table
+    # -----------------------------
+    st.markdown("### 1) Do channels differ on order value?")
+
+    ch_tbl = (
+        df_stat.dropna(subset=["Channel", metric])
+        .groupby("Channel", as_index=False)
+        .agg(
+            Orders=(metric, "count"),
+            Total_Value=(metric, "sum"),
+            Avg_Value=(metric, "mean"),
+            Median_Value=(metric, "median"),
+            P90_Value=(metric, lambda x: x.quantile(0.90)),
+        )
+    )
+
+    if ch_tbl.empty:
+        st.info("Not enough data for channel stats under current filters.")
+        p = np.nan
+    else:
+        ch_tbl["Share"] = np.where(ch_tbl["Total_Value"].sum() > 0, ch_tbl["Total_Value"] / ch_tbl["Total_Value"].sum(), np.nan)
+        ch_tbl = ch_tbl.sort_values("Total_Value", ascending=False)
+
+        # nice rounding for "Excel look"
+        ch_tbl_disp = ch_tbl.copy()
+        ch_tbl_disp["Total_Value"] = ch_tbl_disp["Total_Value"].round(0)
+        ch_tbl_disp["Avg_Value"] = ch_tbl_disp["Avg_Value"].round(0)
+        ch_tbl_disp["Median_Value"] = ch_tbl_disp["Median_Value"].round(0)
+        ch_tbl_disp["P90_Value"] = ch_tbl_disp["P90_Value"].round(0)
+        ch_tbl_disp["Share"] = (ch_tbl_disp["Share"] * 100).round(1)
+
+        ch_tbl_disp = ch_tbl_disp.rename(columns={
+            "Channel": "Channel",
+            "Orders": "Orders",
+            "Total_Value": f"Total ({metric_name})",
+            "Avg_Value": f"Avg ({metric_name})",
+            "Median_Value": f"Median ({metric_name})",
+            "P90_Value": f"P90 ({metric_name})",
+            "Share": "Share (%)",
+        })
+
+        st.dataframe(ch_tbl_disp, use_container_width=True)
+        st.download_button(
+            "Download channel stats (CSV)",
+            data=ch_tbl_disp.to_csv(index=False).encode("utf-8"),
+            file_name="stats_channel_summary.csv",
+            mime="text/csv",
+            key="dl_stats_channel_summary",
+        )
+
+        # Kruskal test
         try:
             from scipy import stats
         except Exception:
             stats = None
 
-        # local p-value formatter (safe)
-        def _p_fmt(v):
-            try:
-                v = float(v)
-            except Exception:
-                return "—"
-            if not np.isfinite(v):
-                return "—"
-            if v < 1e-4:
-                return "<0.0001"
-            return f"{v:.4f}"
-
-        # numeric metric column (safe)
-        df_stat = df.copy()
-        df_stat[metric] = pd.to_numeric(df_stat[metric], errors="coerce")
-
-        # -----------------------------
-        # 1) Channel value differences (Kruskal) + Excel table
-        # -----------------------------
-        st.markdown("### 1) Do channels differ on order value?")
-
-        ch_tbl = (
-            df_stat.dropna(subset=["Channel", metric])
-            .groupby("Channel", as_index=False)
-            .agg(
-                Orders=(metric, "count"),
-                Total_Value=(metric, "sum"),
-                Avg_Value=(metric, "mean"),
-                Median_Value=(metric, "median"),
-                P90_Value=(metric, lambda x: x.quantile(0.90)),
-            )
-        )
-
-        if ch_tbl.empty:
-            st.info("Not enough data for channel stats under current filters.")
+        if stats is None:
             p = np.nan
+            st.info("SciPy not available in this environment (tests disabled).")
         else:
-            ch_tbl["Share"] = np.where(
-                ch_tbl["Total_Value"].sum() > 0,
-                ch_tbl["Total_Value"] / ch_tbl["Total_Value"].sum(),
-                np.nan,
+            grp = (
+                df_stat.dropna(subset=["Channel", metric])
+                .groupby("Channel")[metric]
+                .apply(lambda x: x.dropna().values)
             )
-            ch_tbl = ch_tbl.sort_values("Total_Value", ascending=False)
-
-            # nice rounding for "Excel look"
-            ch_tbl_disp = ch_tbl.copy()
-            ch_tbl_disp["Total_Value"] = ch_tbl_disp["Total_Value"].round(0)
-            ch_tbl_disp["Avg_Value"] = ch_tbl_disp["Avg_Value"].round(0)
-            ch_tbl_disp["Median_Value"] = ch_tbl_disp["Median_Value"].round(0)
-            ch_tbl_disp["P90_Value"] = ch_tbl_disp["P90_Value"].round(0)
-            ch_tbl_disp["Share"] = (ch_tbl_disp["Share"] * 100).round(1)
-
-            ch_tbl_disp = ch_tbl_disp.rename(columns={
-                "Total_Value": f"Total ({metric_name})",
-                "Avg_Value": f"Avg ({metric_name})",
-                "Median_Value": f"Median ({metric_name})",
-                "P90_Value": f"P90 ({metric_name})",
-                "Share": "Share (%)",
-            })
-
-            st.dataframe(ch_tbl_disp, use_container_width=True)
-            st.download_button(
-                "Download channel stats (CSV)",
-                data=ch_tbl_disp.to_csv(index=False).encode("utf-8"),
-                file_name="stats_channel_summary.csv",
-                mime="text/csv",
-                key="dl_stats_channel_summary",
-            )
-
-            if stats is None:
-                p = np.nan
-                st.info("SciPy not available in this environment (tests disabled).")
+            if len(grp) >= 2:
+                _, p = stats.kruskal(*grp.tolist())
+                st.write(
+                    f"p-value: **{_p_fmt(p)}** → "
+                    + ("Yes, typical order values differ across channels." if p < 0.05 else "No strong evidence of difference.")
+                )
             else:
-                grp = (
-                    df_stat.dropna(subset=["Channel", metric])
-                    .groupby("Channel")[metric]
-                    .apply(lambda x: x.dropna().values)
+                p = np.nan
+                st.write("Not enough channels in current filters for this test.")
+
+    st.divider()
+
+    # -----------------------------
+    # 2) Channel mix differs by country? (Chi-square) + Excel tables
+    # -----------------------------
+    st.markdown("### 2) Is channel mix different by country?")
+
+    if len(country_totals) == 0:
+        st.info("No country totals available under current filters.")
+        p2 = np.nan
+    else:
+        top_for_test = country_totals.head(min(10, len(country_totals))).index
+        tmp = df_stat.copy()
+        tmp["Country (top)"] = np.where(tmp["Country"].isin(top_for_test), tmp["Country"], "Other")
+
+        ct = pd.crosstab(tmp["Country (top)"], tmp["Channel"])
+
+        if ct.shape[0] >= 2 and ct.shape[1] >= 2:
+            # counts table
+            st.markdown("**Counts (Country × Channel)**")
+            st.dataframe(ct, use_container_width=True)
+            st.download_button(
+                "Download counts table (CSV)",
+                data=ct.to_csv().encode("utf-8"),
+                file_name="stats_country_channel_counts.csv",
+                mime="text/csv",
+                key="dl_stats_counts",
+            )
+
+            # share table (row-normalized)
+            ct_share = ct.div(ct.sum(axis=1).replace(0, np.nan), axis=0) * 100
+            ct_share = ct_share.round(1)
+            st.markdown("**Row Share % (within each country)**")
+            st.dataframe(ct_share, use_container_width=True)
+            st.download_button(
+                "Download share table (CSV)",
+                data=ct_share.to_csv().encode("utf-8"),
+                file_name="stats_country_channel_share_pct.csv",
+                mime="text/csv",
+                key="dl_stats_share",
+            )
+
+            if stats is not None:
+                _, p2, _, _ = stats.chi2_contingency(ct)
+                st.write(
+                    f"p-value: **{_p_fmt(p2)}** → "
+                    + ("Yes, channel mix differs by country." if p2 < 0.05 else "No strong evidence of different mixes.")
                 )
-                if len(grp) >= 2:
-                    _, p = stats.kruskal(*grp.tolist())
-                    st.write(
-                        f"p-value: **{_p_fmt(p)}** → "
-                        + ("Yes, typical order values differ across channels." if p < 0.05 else "No strong evidence of difference.")
-                    )
-                else:
-                    p = np.nan
-                    st.write("Not enough channels in current filters for this test.")
-
-        st.divider()
-
-        # -----------------------------
-        # 2) Channel mix differs by country? (Chi-square) + Excel tables
-        # -----------------------------
-        st.markdown("### 2) Is channel mix different by country?")
-
-        if len(country_totals) == 0:
-            st.info("No country totals available under current filters.")
-            p2 = np.nan
-        else:
-            top_for_test = country_totals.head(min(10, len(country_totals))).index
-            tmp = df_stat.copy()
-            tmp["Country (top)"] = np.where(tmp["Country"].isin(top_for_test), tmp["Country"], "Other")
-
-            ct = pd.crosstab(tmp["Country (top)"], tmp["Channel"])
-
-            if ct.shape[0] >= 2 and ct.shape[1] >= 2:
-                st.markdown("**Counts (Country × Channel)**")
-                st.dataframe(ct, use_container_width=True)
-                st.download_button(
-                    "Download counts table (CSV)",
-                    data=ct.to_csv().encode("utf-8"),
-                    file_name="stats_country_channel_counts.csv",
-                    mime="text/csv",
-                    key="dl_stats_counts",
-                )
-
-                ct_share = ct.div(ct.sum(axis=1).replace(0, np.nan), axis=0) * 100
-                ct_share = ct_share.round(1)
-                st.markdown("**Row Share % (within each country)**")
-                st.dataframe(ct_share, use_container_width=True)
-                st.download_button(
-                    "Download share table (CSV)",
-                    data=ct_share.to_csv().encode("utf-8"),
-                    file_name="stats_country_channel_share_pct.csv",
-                    mime="text/csv",
-                    key="dl_stats_share",
-                )
-
-                if stats is not None:
-                    _, p2, _, _ = stats.chi2_contingency(ct)
-                    st.write(
-                        f"p-value: **{_p_fmt(p2)}** → "
-                        + ("Yes, channel mix differs by country." if p2 < 0.05 else "No strong evidence of different mixes.")
-                    )
-                else:
-                    p2 = np.nan
-                    st.info("SciPy not available in this environment (tests disabled).")
             else:
                 p2 = np.nan
-                st.write("Not enough data for this test with current filters.")
-
-        st.divider()
-
-        # -----------------------------
-        # 3) Strongest numeric relationships (Spearman) + Excel table
-        # -----------------------------
-        st.markdown("### 3) Strongest numeric relationships (Spearman)")
-
-        if stats is None:
-            st.info("SciPy not available in this environment (Spearman disabled).")
         else:
-            driver_candidates = [
-                "Discount (CAD)", "Shipping (CAD)", "Taxes Collected (CAD)",
-                "Color Count (#)", "length", "width", "weight"
-            ]
+            p2 = np.nan
+            st.write("Not enough data for this test with current filters.")
+
+    st.divider()
+
+    # -----------------------------
+    # 3) Strongest numeric relationships (Spearman) + Excel table
+    # -----------------------------
+    st.markdown("### 3) Strongest numeric relationships (Spearman)")
+
+    if stats is None:
+        st.info("SciPy not available in this environment (Spearman disabled).")
+    else:
+        driver_candidates = [
+            "Discount (CAD)", "Shipping (CAD)", "Taxes Collected (CAD)",
+            "Color Count (#)", "length", "width", "weight"
+        ]
+        if lag_col is not None:
+            driver_candidates.append(lag_col)
+
+        drivers = [c for c in driver_candidates if c in df_stat.columns]
+        rows = []
+
+        for c in drivers:
+            x = pd.to_numeric(df_stat[c], errors="coerce")
+            y = pd.to_numeric(df_stat[metric], errors="coerce")
+            ok = x.notna() & y.notna()
+            if ok.sum() >= 30:
+                r, pv = stats.spearmanr(x[ok], y[ok])
+                rows.append((c, float(r), float(pv), int(ok.sum())))
+
+        if rows:
+            out = pd.DataFrame(rows, columns=["Variable", "Spearman r", "p-value", "n"])
+            out["|r|"] = out["Spearman r"].abs()
+            out = out.sort_values("|r|", ascending=False).drop(columns=["|r|"]).head(12).reset_index(drop=True)
+
+            out_disp = out.copy()
+            out_disp["Spearman r"] = out_disp["Spearman r"].round(3)
+            out_disp["p-value"] = out_disp["p-value"].apply(_p_fmt)
+
+            st.dataframe(out_disp, use_container_width=True)
+            st.download_button(
+                "Download correlations (CSV)",
+                data=out_disp.to_csv(index=False).encode("utf-8"),
+                file_name="stats_spearman_correlations.csv",
+                mime="text/csv",
+                key="dl_stats_corr",
+            )
+        else:
+            st.write("Not enough data for correlation stats under current filters.")
+
+    # -----------------------------
+    # Dropdown insights (Price Drivers layout)
+    # -----------------------------
+    insights_md = "\n".join([
+        "- Stats help confirm whether chart differences are likely real (not random noise).",
+        "- If significant, treat channel/country strategy as market-specific (not one-size-fits-all).",
+    ])
+    why_md = "This prevents overreacting to small samples and supports decisions with evidence."
+    recs_md = "\n".join([
+        "- If channels differ, prioritize the channels with the best value + volume.",
+        "- If mix differs by country, plan channel strategy per market using the heatmap tab.",
+        "- Use the top 2–3 Spearman drivers as KPIs/filters (don’t overload the dashboard).",
+    ])
+
+    insights_expander("Stats", insights_md, why_md, recs_md)
+    st.divider()
+
+
+    # ======================
+    # TAB 5: Data
+    # ======================
+    with tabs[5]:
+        st.subheader("Clean tables + download")
+
+        colA, colB = st.columns(2)
+
+        with colA:
+            st.markdown("### Top Countries")
+            t = country_totals.reset_index().rename(columns={metric: "Total ($ CAD)"}).head(25)
+            t["Total ($ CAD)"] = t["Total ($ CAD)"].round(0)
+            st.dataframe(rank_df(t).set_index("#"), use_container_width=True)
+
+            st.markdown("### Top Cities (Country + City)")
+            cct = df.groupby(["Country", "City"])[metric].sum().sort_values(ascending=False).head(25).reset_index().rename(columns={metric: "Total ($ CAD)"})
+            cct["Total ($ CAD)"] = cct["Total ($ CAD)"].round(0)
+            st.dataframe(rank_df(cct).set_index("#"), use_container_width=True)
+
+        with colB:
+            st.markdown("### Country × Channel KPI")
+
+            order_col = "Sale ID" if "Sale ID" in df.columns else metric
+            kpi = df.groupby(["Country", "Channel"]).agg(
+                orders=(order_col, "count"),
+                total=(metric, "sum"),
+                avg=(metric, "mean"),
+                median=(metric, "median"),
+                avg_ship_lag=(lag_col, "mean") if lag_col is not None else (metric, "count"),
+            ).reset_index()
+
+            kpi["total"] = kpi["total"].round(0)
+            kpi["avg"] = kpi["avg"].round(0)
+            kpi["median"] = kpi["median"].round(0)
             if lag_col is not None:
-                driver_candidates.append(lag_col)
+                kpi["avg_ship_lag"] = kpi["avg_ship_lag"].round(1)
 
-            drivers = [c for c in driver_candidates if c in df_stat.columns]
-            rows = []
+            kpi = kpi.sort_values("total", ascending=False).head(40)
+            kpi = rank_df(kpi).rename(columns={
+                "total": "Total ($ CAD)",
+                "avg": "Avg ($ CAD)",
+                "median": "Median ($ CAD)",
+                "avg_ship_lag": "Avg Ship Lag (days)" if lag_col is not None else "Avg Ship Lag (n/a)",
+            })
+            st.dataframe(kpi.set_index("#"), use_container_width=True)
 
-            for c in drivers:
-                x = pd.to_numeric(df_stat[c], errors="coerce")
-                y = pd.to_numeric(df_stat[metric], errors="coerce")
-                ok = x.notna() & y.notna()
-                if ok.sum() >= 30:
-                    r, pv = stats.spearmanr(x[ok], y[ok])
-                    rows.append((c, float(r), float(pv), int(ok.sum())))
+            st.download_button(
+                "Download filtered data (CSV)",
+                data=df.to_csv(index=False).encode("utf-8"),
+                file_name="filtered_data.csv",
+                mime="text/csv",
+                key="dl_filtered_data",
+            )
 
-            if rows:
-                out = pd.DataFrame(rows, columns=["Variable", "Spearman r", "p-value", "n"])
-                out["|r|"] = out["Spearman r"].abs()
-                out = (
-                    out.sort_values("|r|", ascending=False)
-                    .drop(columns=["|r|"])
-                    .head(12)
-                    .reset_index(drop=True)
-                )
+        with st.expander("Preview (first 200 rows)"):
+            st.dataframe(df.head(200), use_container_width=True)
 
-                out_disp = out.copy()
-                out_disp["Spearman r"] = out_disp["Spearman r"].round(3)
-                out_disp["p-value"] = out_disp["p-value"].apply(_p_fmt)
-
-                st.dataframe(out_disp, use_container_width=True)
-                st.download_button(
-                    "Download correlations (CSV)",
-                    data=out_disp.to_csv(index=False).encode("utf-8"),
-                    file_name="stats_spearman_correlations.csv",
-                    mime="text/csv",
-                    key="dl_stats_corr",
-                )
-            else:
-                st.write("Not enough data for correlation stats under current filters.")
-
-        insights_md = "\n".join([
-            "- Stats help confirm whether chart differences are likely real (not random noise).",
-            "- If significant, treat channel/country strategy as market-specific (not one-size-fits-all).",
-        ])
-        why_md = "This prevents overreacting to small samples and supports decisions with evidence."
+        insights_md = "- Tables help you validate the charts and export clean subsets for deeper analysis."
+        why_md = "When you need exact numbers (not just visuals), the KPI tables are the source of truth."
         recs_md = "\n".join([
-            "- If channels differ, prioritize the channels with the best value + volume.",
-            "- If mix differs by country, plan channel strategy per market using the heatmap tab.",
-            "- Use the top 2–3 Spearman drivers as KPIs/filters (don’t overload the dashboard).",
+            "- Use Country × Channel KPI to pick which channel to scale in each market.",
+            "- Export the filtered dataset when you want to analyze in Excel/Power BI.",
         ])
 
-        insights_expander("Stats", insights_md, why_md, recs_md)
+        insights_expander("Data", insights_md, why_md, recs_md)
         st.divider()
-
 # -----------------------------
 # TAB 6: Inventory Timing 
 # -----------------------------
@@ -2993,7 +3112,7 @@ def render_inventory_analysis_tab(df_in: pd.DataFrame):
             f"**Expected units to be sold in the projected period:** **{int(round(expected_units_horizon))} units**"
         )
 
-    
+
     # TABLE: STOCK STATUS vs OPTIMAL (3M) + RESTOCK 1M + FORECAST NEXT 3
     st.markdown("---")
     st.subheader("Stock Status vs 3-Month Optimal Stock (with 1-Month Restock)")
@@ -3050,7 +3169,7 @@ def render_inventory_analysis_tab(df_in: pd.DataFrame):
 
     table_df = pd.DataFrame(rows)
 
-   
+
     attr_cols = ["Species", "Grade", "Finish", "Dominant Color", "Color Count (#)"]
     df_attr = df_scope.copy()
 
@@ -3572,7 +3691,7 @@ def render_ownership_analysis_tab(df_in: pd.DataFrame):
                 f"(revenue per sale). `{worst['Ownership']}` has very low or zero ROI."
             )
 
-    
+
     # Product profiles
     st.markdown("---")
     col_prof1, col_prof2 = st.columns(2)
@@ -4176,7 +4295,7 @@ with tab_compliance:
             )
             fig = style_fig(fig, height=520)
             st.plotly_chart(fig, use_container_width=True, key=pkey("comp_chart1"))
-         
+
 
         # DIR expander
         total_rows = int(len(c_df))
