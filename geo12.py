@@ -678,7 +678,7 @@ st.markdown("---")
         "Ownership",
         "Seasonality",
         "Compliance",
-        "Stats"      # ✅ NEW (between Compliance and All Data)
+        "Stats",     # ✅ NEW (between Compliance and All Data)
         "All Data",
     ]
 )
