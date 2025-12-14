@@ -1292,536 +1292,362 @@ with tab_price:
             st.info("Missing required columns for forecasting (need Product Type, Grade, Month, Year, and a price column).")
 
 # ======================
-# TAB: PRODUCT MIX  ✅ (ONLY shows inside Product Mix tab)
+# TAB: OWNERSHIP  ✅ (Consignment vs Owned)
+# Paste this inside:  with tab_ownership:
+# Assumes df (and optionally filtered df named `f`) already exist. :contentReference[oaicite:0]{index=0}
 # ======================
-with tab_mix:
-    st.header("🧩 Product Mix")
+with tab_ownership:
+    st.header("🏷️ Ownership (Consignment vs Owned)")
 
-    # Use filtered df if you have it (common in your app), otherwise use df
-    pm_df = f.copy() if "f" in locals() else df.copy()
+    # --- Use filtered df if available ---
+    o_df = f.copy() if "f" in locals() else df.copy()
 
-    # ---- Safety: required columns + numeric cleanup ----
-    for col in ["Price (CAD)", "Discount (CAD)"]:
-        if col in pm_df.columns:
-            pm_df[col] = pd.to_numeric(pm_df[col], errors="coerce").fillna(0)
+    # --- pick metric column safely ---
+    if "metric_col" in globals() and metric_col in o_df.columns:
+        sales_col = metric_col
+        sales_label = metric_label if "metric_label" in globals() else sales_col
+    elif "Net Sales" in o_df.columns:
+        sales_col = "Net Sales"
+        sales_label = "Net Sales (CAD)"
+    else:
+        sales_col = "Price (CAD)"
+        sales_label = "Sales (CAD)"
 
-    if "Sale ID" not in pm_df.columns:
-        pm_df["Sale ID"] = np.arange(len(pm_df)) + 1
+    # --- helpers ---
+    def _pkey_safe(prefix: str) -> str:
+        if "pkey" in globals():
+            return pkey(prefix)
+        return f"{prefix}_{np.random.randint(1_000_000)}"
 
-    for col in ["Product Type", "Grade", "Species"]:
-        if col not in pm_df.columns:
-            pm_df[col] = "Unknown"
+    def _to_dt(series):
+        return pd.to_datetime(series, errors="coerce")
 
-    # ---- Product Mix sub-tabs ----
-    pm_tabs = st.tabs(["Overview", "Interactive Treemap", "Revenue Analysis"])
+    def _is_yes(x):
+        if pd.isna(x):
+            return False
+        s = str(x).strip().lower()
+        return s in {"y", "yes", "true", "1", "t"}
 
-    # =====================================================
-    # TAB 1: OVERVIEW
-    # =====================================================
-    with pm_tabs[0]:
-        st.subheader("📊 Executive Summary")
+    # --- required cols / cleanup ---
+    for c in [sales_col, "Discount (CAD)", "Shipping (CAD)", "Taxes Collected (CAD)"]:
+        if c in o_df.columns:
+            o_df[c] = pd.to_numeric(o_df[c], errors="coerce").fillna(0)
 
-        col1, col2, col3, col4 = st.columns(4)
+    if "Sale ID" not in o_df.columns:
+        o_df["Sale ID"] = np.arange(len(o_df)) + 1
 
-        total_rev = pm_df["Price (CAD)"].sum()
-        total_sales = len(pm_df)
-        avg_txn = pm_df["Price (CAD)"].mean() if total_sales else 0
-        mean_price = pm_df["Price (CAD)"].mean() if total_sales else 0
-        mean_disc = pm_df["Discount (CAD)"].mean() if total_sales else 0
-        avg_disc = (mean_disc / mean_price * 100) if mean_price else 0
+    # Dates (optional)
+    if "Date" in o_df.columns:
+        o_df["Date"] = _to_dt(o_df["Date"])
+    if "Shipped Date" in o_df.columns:
+        o_df["Shipped Date"] = _to_dt(o_df["Shipped Date"])
 
-        with col1:
-            st.metric("Total Revenue", f"${total_rev:,.0f}", "CAD")
-        with col2:
-            st.metric("Total Sales", f"{total_sales:,}", "transactions")
-        with col3:
-            st.metric("Avg Transaction", f"${avg_txn:,.2f}")
-        with col4:
-            st.metric("Avg Discount", f"{avg_disc:.2f}%", "Strong pricing")
+    # Ownership flags
+    cons_col = "Consignment? (Y/N)"
+    owner_col = "Consignment Owner"
 
-        st.markdown("---")
+    if cons_col not in o_df.columns:
+        o_df[cons_col] = np.nan
+    if owner_col not in o_df.columns:
+        o_df[owner_col] = np.nan
 
-        product_stats = (
-            pm_df.groupby("Product Type")
-            .agg({"Price (CAD)": "sum", "Sale ID": "count"})
-            .reset_index()
-        )
-        product_stats.columns = ["Product Type", "Total Revenue", "Sales Volume"]
-        product_stats = product_stats.sort_values("Total Revenue", ascending=False)
+    o_df["Is_Consignment"] = o_df[cons_col].apply(_is_yes)
 
-        col1, col2 = st.columns(2)
+    # Friendly labels
+    o_df["Ownership Type"] = np.where(o_df["Is_Consignment"], "Consignment", "Owned")
+    o_df["Owner Name"] = o_df[owner_col].fillna("").astype(str).str.strip()
+    o_df.loc[(o_df["Ownership Type"] == "Consignment") & (o_df["Owner Name"] == ""), "Owner Name"] = "Unknown Owner"
+    o_df.loc[o_df["Ownership Type"] == "Owned", "Owner Name"] = "Company Owned"
 
-        with col1:
-            st.markdown("### 🏆 Top 3 Revenue Generators")
-            top3_revenue = product_stats.head(3)
-            for _, row in top3_revenue.iterrows():
-                pct = (row["Total Revenue"] / total_rev * 100) if total_rev else 0
-                st.metric(row["Product Type"], f"${row['Total Revenue']:,.0f}", f"{pct:.1f}% of total")
+    # Optional: Days to ship
+    if "Date" in o_df.columns and "Shipped Date" in o_df.columns:
+        o_df["Days to Ship"] = (o_df["Shipped Date"] - o_df["Date"]).dt.days
+        o_df.loc[o_df["Days to Ship"] < 0, "Days to Ship"] = np.nan
 
-            st.markdown("### 📊 Top 3 Volume Leaders")
-            top3_volume = product_stats.sort_values("Sales Volume", ascending=False).head(3)
-            for _, row in top3_volume.iterrows():
-                pct = (row["Sales Volume"] / total_sales * 100) if total_sales else 0
-                st.metric(row["Product Type"], f"{int(row['Sales Volume']):,} sales", f"{pct:.1f}% of volume")
+    # --- sub-tabs ---
+    own_tabs = st.tabs(["Overview", "Owner Breakdown", "Mix (Channel/Country)", "Timing", "Data"])
 
-        with col2:
-            st.markdown("### ⚠️ Bottom 3 Revenue Generators")
-            bottom3_revenue = product_stats.tail(3).sort_values("Total Revenue", ascending=True)
-            for _, row in bottom3_revenue.iterrows():
-                pct = (row["Total Revenue"] / total_rev * 100) if total_rev else 0
-                st.metric(row["Product Type"], f"${row['Total Revenue']:,.0f}", f"{pct:.1f}% of total")
+    # ======================
+    # Overview
+    # ======================
+    with own_tabs[0]:
+        total_rev = float(o_df[sales_col].sum())
+        total_orders = int(len(o_df))
 
-            st.markdown("### 📉 Bottom 3 Volume Leaders")
-            bottom3_volume = product_stats.sort_values("Sales Volume", ascending=True).head(3)
-            for _, row in bottom3_volume.iterrows():
-                pct = (row["Sales Volume"] / total_sales * 100) if total_sales else 0
-                st.metric(row["Product Type"], f"{int(row['Sales Volume']):,} sales", f"{pct:.1f}% of volume")
+        cons_rev = float(o_df.loc[o_df["Ownership Type"] == "Consignment", sales_col].sum())
+        cons_orders = int((o_df["Ownership Type"] == "Consignment").sum())
 
-        st.markdown("---")
-        st.subheader("💰 Revenue Distribution by Product Type")
+        cons_rev_share = (cons_rev / total_rev * 100) if total_rev else 0
+        cons_vol_share = (cons_orders / total_orders * 100) if total_orders else 0
 
-        revenue_by_type = pm_df.groupby("Product Type")["Price (CAD)"].sum().reset_index()
-        revenue_by_type.columns = ["Product Type", "Revenue"]
-        revenue_by_type = revenue_by_type.sort_values("Revenue", ascending=True)
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric(sales_label, f"${total_rev:,.0f}")
+        c2.metric("Total Orders", f"{total_orders:,}")
+        c3.metric("Consigned Share (Revenue)", f"{cons_rev_share:.1f}%")
+        c4.metric("Consigned Share (Volume)", f"{cons_vol_share:.1f}%")
 
-        fig_revenue = px.bar(
-            revenue_by_type,
-            x="Revenue",
-            y="Product Type",
-            orientation="h",
-            title="Total Revenue by Product Type",
-        )
-        fig_revenue.update_layout(height=500, showlegend=False, xaxis_title="Revenue (CAD)", yaxis_title="Product Type")
-        fig_revenue.update_traces(texttemplate="$%{x:,.0f}", textposition="outside")
-        st.plotly_chart(fig_revenue, use_container_width=True, key=pkey("pm_rev"))
+        if "Days to Ship" in o_df.columns:
+            avg_days = float(o_df["Days to Ship"].dropna().mean()) if o_df["Days to Ship"].notna().any() else 0.0
+            c5.metric("Avg Days to Ship", f"{avg_days:.1f}")
+        else:
+            c5.metric("Avg Days to Ship", "—")
 
         st.markdown("---")
-        st.subheader("📊 Sales Volume Distribution")
 
-        volume_by_type = pm_df.groupby("Product Type").size().reset_index(name="Count")
-        volume_by_type = volume_by_type.sort_values("Count", ascending=True)
+        # Revenue + Volume share charts
+        left, right = st.columns(2)
 
-        fig_volume = px.bar(
-            volume_by_type,
-            x="Count",
-            y="Product Type",
-            orientation="h",
-            title="Total Sales by Product Type",
+        rev_by_own = (
+            o_df.groupby("Ownership Type", as_index=False)[sales_col]
+            .sum()
+            .sort_values(sales_col, ascending=False)
         )
-        fig_volume.update_layout(height=500, showlegend=False, xaxis_title="Number of Sales", yaxis_title="Product Type")
-        fig_volume.update_traces(texttemplate="%{x:,}", textposition="outside")
-        st.plotly_chart(fig_volume, use_container_width=True, key=pkey("pm_vol"))
-
-    # =====================================================
-    # TAB 2: INTERACTIVE TREEMAP
-    # =====================================================
-    with pm_tabs[1]:
-        st.subheader("🗺️ Interactive Product Hierarchy")
-
-        fig_treemap = px.treemap(
-            pm_df,
-            path=["Product Type", "Grade", "Species"],
-            values="Price (CAD)",
-            title="Product Mix Revenue Hierarchy (Click to Zoom)",
-            color="Price (CAD)",
+        vol_by_own = (
+            o_df.groupby("Ownership Type", as_index=False)["Sale ID"]
+            .count()
+            .rename(columns={"Sale ID": "Orders"})
+            .sort_values("Orders", ascending=False)
         )
-        fig_treemap.update_layout(height=700, font=dict(size=14))
-        fig_treemap.update_traces(marker=dict(line=dict(width=2, color="white")))
-        st.plotly_chart(fig_treemap, use_container_width=True, key=pkey("pm_tree"))
 
-        if st.checkbox("📊 View Complete Data Table", key="pm_treemap_data"):
-            hierarchy_data = pm_df.groupby(["Product Type", "Grade", "Species"]).agg(
-                **{
-                    "Total Revenue": ("Price (CAD)", "sum"),
-                    "Sales Count": ("Price (CAD)", "count"),
-                    "Avg Price": ("Price (CAD)", "mean"),
-                }
-            ).round(2).sort_values("Total Revenue", ascending=False)
-            st.dataframe(hierarchy_data, use_container_width=True)
+        with left:
+            fig_rev = px.pie(
+                rev_by_own,
+                names="Ownership Type",
+                values=sales_col,
+                hole=0.45,
+                title=f"Revenue Share: Consignment vs Owned",
+            )
+            if "style_fig" in globals():
+                fig_rev = style_fig(fig_rev, height=420)
+            else:
+                fig_rev.update_layout(height=420)
+            st.plotly_chart(fig_rev, use_container_width=True, key=_pkey_safe("own_rev_pie"))
 
-    # =====================================================
-    # TAB 3: REVENUE ANALYSIS
-    # =====================================================
-    with pm_tabs[2]:
-        st.subheader("📈 Revenue Deep Dive")
+        with right:
+            fig_vol = px.pie(
+                vol_by_own,
+                names="Ownership Type",
+                values="Orders",
+                hole=0.45,
+                title="Order Volume Share: Consignment vs Owned",
+            )
+            if "style_fig" in globals():
+                fig_vol = style_fig(fig_vol, height=420)
+            else:
+                fig_vol.update_layout(height=420)
+            st.plotly_chart(fig_vol, use_container_width=True, key=_pkey_safe("own_vol_pie"))
 
-        grade_revenue = (
-            pm_df.groupby("Grade")
-            .agg(Revenue=("Price (CAD)", "sum"), Sales=("Sale ID", "count"))
-            .reset_index()
-        )
-        grade_revenue["Percentage"] = (
-            (grade_revenue["Revenue"] / grade_revenue["Revenue"].sum() * 100).round(1)
-            if grade_revenue["Revenue"].sum() else 0
-        )
-        grade_revenue = grade_revenue.sort_values("Revenue", ascending=False)
+        # Simple insights
+        st.markdown("### Insights")
+        bullets = [
+            f"- Consignment contributes **{cons_rev_share:.1f}%** of revenue and **{cons_vol_share:.1f}%** of orders.",
+        ]
+        if cons_orders > 0:
+            cons_aov = cons_rev / cons_orders
+            owned_orders = max(total_orders - cons_orders, 0)
+            owned_rev = total_rev - cons_rev
+            owned_aov = (owned_rev / owned_orders) if owned_orders else 0
+            bullets.append(f"- Avg revenue/order: **Consignment ${cons_aov:,.0f}** vs **Owned ${owned_aov:,.0f}**.")
+        st.markdown("\n".join(bullets))
 
-        fig_grade = px.bar(
-            grade_revenue,
-            x="Grade",
-            y="Revenue",
-            title="Total Revenue by Ammolite Grade",
-            text="Percentage",
-        )
-        fig_grade.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
-        fig_grade.update_layout(height=500, xaxis_title="Grade", yaxis_title="Revenue (CAD)", showlegend=False)
-        st.plotly_chart(fig_grade, use_container_width=True, key=pkey("pm_grade"))
+    # ======================
+    # Owner Breakdown (Consignment owners)
+    # ======================
+    with own_tabs[1]:
+        st.subheader("Top Consignment Owners")
 
-        st.markdown("---")
-        st.subheader("📊 Individual Product Type Breakdowns")
+        cons_only = o_df[o_df["Ownership Type"] == "Consignment"].copy()
 
-        for product_type in pm_df["Product Type"].dropna().unique():
-            product_df = pm_df[pm_df["Product Type"] == product_type].copy()
-            if product_df.empty:
-                continue
+        if cons_only.empty:
+            st.info("No consignment records found in the current filters.")
+        else:
+            top_n = st.slider("Top N owners", min_value=5, max_value=30, value=10, step=1, key="own_topn")
 
-            with st.expander(f"🔍 {product_type} Analysis"):
-                c1, c2, c3, c4 = st.columns(4)
+            owner_rev = (
+                cons_only.groupby("Owner Name", as_index=False)[sales_col]
+                .sum()
+                .sort_values(sales_col, ascending=False)
+            )
 
-                p_rev = product_df["Price (CAD)"].sum()
-                p_sales = len(product_df)
-                p_avg = product_df["Price (CAD)"].mean() if p_sales else 0
-                p_disc = product_df["Discount (CAD)"].mean() if p_sales else 0
-                p_disc_pct = (p_disc / p_avg * 100) if p_avg else 0
+            top_owner_rev = owner_rev.head(top_n).copy()
+            fig_owner = px.bar(
+                top_owner_rev.sort_values(sales_col, ascending=True),
+                x=sales_col,
+                y="Owner Name",
+                orientation="h",
+                title=f"Top {top_n} Consignment Owners by Revenue",
+                text_auto=".2s",
+            )
+            fig_owner.update_layout(xaxis_title=sales_label, yaxis_title="")
+            if "style_fig" in globals():
+                fig_owner = style_fig(fig_owner, height=520)
+            else:
+                fig_owner.update_layout(height=520)
 
-                c1.metric("Revenue", f"${p_rev:,.0f}")
-                c2.metric("Sales", f"{p_sales:,}")
-                c3.metric("Avg Price", f"${p_avg:,.2f}")
-                c4.metric("Avg Discount", f"{p_disc_pct:.2f}%")
+            st.plotly_chart(fig_owner, use_container_width=True, key=_pkey_safe("own_owner_bar"))
 
-                grade_product = product_df.groupby("Grade")["Price (CAD)"].sum().reset_index()
-                grade_product.columns = ["Grade", "Revenue"]
-                grade_product = grade_product.sort_values("Revenue", ascending=False)
-
-                fig_pt_grade = px.bar(
-                    grade_product,
-                    x="Grade",
-                    y="Revenue",
-                    title=f"{product_type} • Revenue by Grade",
+            # Owner KPIs table
+            owner_kpis = (
+                cons_only.groupby("Owner Name", as_index=False)
+                .agg(
+                    Orders=("Sale ID", "count"),
+                    Revenue=(sales_col, "sum"),
+                    Avg_Order=(sales_col, "mean"),
                 )
-                fig_pt_grade.update_layout(height=420, showlegend=False, xaxis_title="Grade", yaxis_title="Revenue (CAD)")
-                st.plotly_chart(fig_pt_grade, use_container_width=True, key=pkey(f"pm_pt_grade_{product_type}"))
-
-
-# -----------------------------
-# TAB: Customer Segments (RFM added)
-# -----------------------------
-with tab_segments:
-    st.subheader("Customer Segments – Who Buys and Who Matters?")
-    s_df = f.copy()
-
-    s_tabs = st.tabs(["Overview","New x Returning", "Segment × Channel", "Customer Value", "RFM", "Data"])
-
-    with s_tabs[0]:
-        seg = s_df.groupby("Customer Type", as_index=False)[metric_col].sum().sort_values(metric_col, ascending=False)
-        fig1 = px.bar(seg, x="Customer Type", y=metric_col, title=f"{metric_label} by Customer Segment", text_auto=".2s")
-        fig1.update_layout(xaxis_title="", yaxis_title=metric_label)
-        fig1 = style_fig(fig1, height=430)
-        st.plotly_chart(fig1, use_container_width=True, key=pkey("seg_bar"))
-
-        fig2 = px.pie(seg, names="Customer Type", values=metric_col, title=f"Share of {metric_label} by Segment", hole=0.35)
-        fig2 = style_fig(fig2, height=430)
-        fig2.update_layout(showlegend=True, legend=dict(orientation="v",yanchor="top", y=1, xanchor="left", x=1.05),margin=dict(r=160))
-
-        st.plotly_chart(fig2, use_container_width=True, key=pkey("seg_pie"))
-
-        st.subheader("Description")
-        st.write("""
-               This chart shows **net sales (CAD) by customer segment**. It provides a breakdown of revenue contribution by different customer types and highlights trends for business strategy.
-               """)
-
-        st.subheader("Insights")
-        seg = f.groupby("Customer Type", as_index=False)[metric_col].sum().sort_values(metric_col, ascending=False)
-        top_segment_share = seg[metric_col].iloc[0] / seg[metric_col].sum() if seg[metric_col].sum() > 0 else np.nan
-        top_segments = seg["Customer Type"].head(3).tolist()
-        minor_segments_present = len(seg) > 3
-        missing_segments = f["Customer Type"].isna().sum()
-
-        bullets = []
-        if np.isfinite(top_segment_share):
-            bullets.append(
-                f"- **{top_segments[0]}** is the top segment, contributing ~{top_segment_share * 100:.0f}% of total sales. "
-                "This indicates that most of the revenue is driven by this segment, highlighting its importance for sales strategy."
+                .sort_values("Revenue", ascending=False)
             )
-        if minor_segments_present:
-            bullets.append(
-                f"- Other notable segments include: {', '.join(top_segments[1:])}. "
-                "These segments also contribute meaningfully, but less than the top segment."
-            )
-        if missing_segments > 0:
-            bullets.append(
-                f"- There are {missing_segments} records with missing Customer Type. "
-                "Incomplete data can affect analysis accuracy, so consider reviewing or cleaning these records."
+            st.dataframe(
+                owner_kpis.head(top_n).style.format(
+                    {"Revenue": "${:,.0f}", "Avg_Order": "${:,.0f}", "Orders": "{:,}"}
+                ),
+                use_container_width=True,
             )
 
-        st.markdown("\n".join(bullets) if bullets else "- No insights available.")
-
-        recs = []
-        if np.isfinite(top_segment_share) and top_segment_share > 0.3:
-            recs.append(
-                f"- Focus on top segments: {', '.join(top_segments)}. "
-                "Prioritizing these segments could maximize revenue and resource efficiency."
-            )
-        if missing_segments > 0:
-            recs.append(
-                "- Investigate and clean missing (NaN) data. "
-                "Improving data quality ensures more reliable analysis and better decision-making."
-            )
-
-        if recs:
-            st.markdown("### Recommendations")
-            st.markdown("\n".join(recs))
-
-    with s_tabs[1]:
-        st.markdown("#### New vs Returning Customers Over Time")
-
-        first_purchase = df.groupby("Customer Name")["Date"].min().reset_index()
-        first_purchase.rename(columns={"Date": "FirstPurchase"}, inplace=True)
-
-        df_new_returning = df.merge(first_purchase, on="Customer Name", how="left")
-
-        recent_threshold = pd.Timestamp.today() - pd.Timedelta(days=90)
-        df_new_returning["CustomerStatus"] = df_new_returning["FirstPurchase"].apply(
-            lambda x: "New" if x >= recent_threshold else "Returning"
-        )
-
-
-        df_new_returning["Month"] = df_new_returning["Date"].dt.to_period("M").dt.to_timestamp()
-        monthly_rev = (df_new_returning.groupby(["Month", "CustomerStatus"], as_index=False)["Net Sales"]
-                       .sum()
-                       )
-
-        fig = px.line(
-            monthly_rev,x="Month",y="Net Sales",color="CustomerStatus",title="Monthly Revenue: New vs Returning Customers",markers=True,color_discrete_map={"New": "#1f77b4", "Returning": "#ff7f0e"})
-        fig.update_layout(xaxis_title="Month",yaxis_title="Net Sales (CAD)",legend=dict(title="Customer Status"),margin=dict(t=80, r=50, l=50, b=50))
-        fig = style_fig(fig, height=450) if 'style_fig' in globals() else fig
-        st.plotly_chart(fig, use_container_width=True)
-
-        top_new = \
-        df_new_returning[df_new_returning["CustomerStatus"] == "New"].groupby("Customer Name", as_index=False)[
-            "Net Sales"].sum().sort_values("Net Sales", ascending=False).head(10)
-        top_returning = \
-        df_new_returning[df_new_returning["CustomerStatus"] == "Returning"].groupby("Customer Name", as_index=False)[
-            "Net Sales"].sum().sort_values("Net Sales", ascending=False).head(10)
+    # ======================
+    # Mix by Channel/Country
+    # ======================
+    with own_tabs[2]:
+        st.subheader("Ownership Mix by Channel / Country")
 
         c1, c2 = st.columns(2)
-        with c1:
-            st.markdown("**Top 10 New Customers by Spend**")
-            st.dataframe(top_new.style.format({"Net Sales": "${:,.0f}"}), use_container_width=True)
-        with c2:
-            st.markdown("**Top 10 Returning Customers by Spend**")
-            st.dataframe(top_returning.style.format({"Net Sales": "${:,.0f}"}), use_container_width=True)
 
-        st.subheader("Description")
-        st.markdown("""
-        - Line chart shows monthly net sales from **New vs Returning customers**.  
-        - **New customers**: all purchases by customers whose first-ever purchase is within the last 90 days.  
-        - **Returning customers**: all purchases by customers whose first-ever purchase is older than 90 days.  
-        - Tables list the top 10 new and returning customers by net sales.
-        """)
+        # Channel stacked revenue
+        if "Channel" in o_df.columns:
+            mix_ch = (
+                o_df.groupby(["Ownership Type", "Channel"], as_index=False)[sales_col]
+                .sum()
+                .sort_values(sales_col, ascending=False)
+            )
+            fig_ch = px.bar(
+                mix_ch,
+                x="Ownership Type",
+                y=sales_col,
+                color="Channel",
+                barmode="stack",
+                title="Revenue by Ownership × Channel",
+            )
+            fig_ch.update_layout(xaxis_title="", yaxis_title=sales_label)
+            if "style_fig" in globals():
+                fig_ch = style_fig(fig_ch, height=460)
+            else:
+                fig_ch.update_layout(height=460)
+            c1.plotly_chart(fig_ch, use_container_width=True, key=_pkey_safe("own_mix_channel"))
+        else:
+            c1.info("Column 'Channel' not found.")
 
-        st.subheader("Insights")
-        insights = [
-            "- Returning customers generate the majority of revenue each month.",
-            "- Revenue peaks are driven mainly by returning customers.",
-            "- New customer revenue is lower and more variable.",
-            "- Top returning customers significantly outperform top new customers in spend."
+        # Country stacked revenue (top 12)
+        if "Country" in o_df.columns:
+            by_cty = (
+                o_df.groupby(["Country", "Ownership Type"], as_index=False)[sales_col]
+                .sum()
+            )
+            top_countries = (
+                o_df.groupby("Country", as_index=False)[sales_col]
+                .sum()
+                .sort_values(sales_col, ascending=False)
+                .head(12)["Country"]
+                .tolist()
+            )
+            by_cty = by_cty[by_cty["Country"].isin(top_countries)]
+            fig_cty = px.bar(
+                by_cty,
+                x="Country",
+                y=sales_col,
+                color="Ownership Type",
+                barmode="group",
+                title="Top Countries: Revenue by Ownership",
+            )
+            fig_cty.update_layout(xaxis_title="", yaxis_title=sales_label)
+            if "style_fig" in globals():
+                fig_cty = style_fig(fig_cty, height=460)
+            else:
+                fig_cty.update_layout(height=460)
+            c2.plotly_chart(fig_cty, use_container_width=True, key=_pkey_safe("own_mix_country"))
+        else:
+            c2.info("Column 'Country' not found.")
+
+    # ======================
+    # Timing
+    # ======================
+    with own_tabs[3]:
+        st.subheader("Timing (Shipping & Trend)")
+
+        if "Days to Ship" not in o_df.columns:
+            st.info("Need both 'Date' and 'Shipped Date' columns to compute shipping timing.")
+        else:
+            t1, t2 = st.columns(2)
+
+            # Distribution by ownership
+            d = o_df.dropna(subset=["Days to Ship"]).copy()
+            if d.empty:
+                st.info("No valid Days to Ship values in current filters.")
+            else:
+                fig_box = px.box(
+                    d,
+                    x="Ownership Type",
+                    y="Days to Ship",
+                    points="outliers",
+                    title="Days to Ship by Ownership Type",
+                )
+                fig_box.update_layout(xaxis_title="", yaxis_title="Days")
+                if "style_fig" in globals():
+                    fig_box = style_fig(fig_box, height=430)
+                else:
+                    fig_box.update_layout(height=430)
+                t1.plotly_chart(fig_box, use_container_width=True, key=_pkey_safe("own_days_box"))
+
+                # Monthly trend (if Date exists)
+                if "Date" in o_df.columns and o_df["Date"].notna().any():
+                    tmp = o_df.dropna(subset=["Date"]).copy()
+                    tmp["Month"] = tmp["Date"].dt.to_period("M").dt.to_timestamp()
+                    m = (
+                        tmp.groupby(["Month", "Ownership Type"], as_index=False)[sales_col]
+                        .sum()
+                        .sort_values("Month")
+                    )
+                    fig_line = px.line(
+                        m,
+                        x="Month",
+                        y=sales_col,
+                        color="Ownership Type",
+                        markers=True,
+                        title="Monthly Revenue Trend by Ownership",
+                    )
+                    fig_line.update_layout(xaxis_title="Month", yaxis_title=sales_label)
+                    if "style_fig" in globals():
+                        fig_line = style_fig(fig_line, height=430)
+                    else:
+                        fig_line.update_layout(height=430)
+                    t2.plotly_chart(fig_line, use_container_width=True, key=_pkey_safe("own_month_line"))
+                else:
+                    t2.info("Column 'Date' not found (or no valid dates) for monthly trend.")
+
+    # ======================
+    # Data
+    # ======================
+    with own_tabs[4]:
+        st.subheader("Ownership Data (Filtered)")
+
+        cols = [
+            "Sale ID", "Date", "Shipped Date",
+            "Country", "City", "Channel",
+            cons_col, owner_col,
+            "Ownership Type", "Owner Name",
+            sales_col, "Discount (CAD)", "Shipping (CAD)", "Taxes Collected (CAD)",
+            "Days to Ship",
         ]
-        st.markdown("\n".join(insights))
+        cols = [c for c in cols if c in o_df.columns]
+        out = o_df[cols].copy()
+        out = out.loc[:, ~out.columns.duplicated()]
 
-        st.subheader("Recommendations")
-        recs = [
-            "- Prioritize retention and loyalty programs for returning customers.",
-            "- Nurture new customers within the first 90 days to drive repeat purchases.",
-            "- Target high-spending new customers with personalized follow-ups to convert them into returning customers."
-        ]
-        st.markdown("\n".join(recs))
+        st.dataframe(out.head(max_rows if "max_rows" in globals() else 200), use_container_width=True)
 
-    with s_tabs[2]:
-        seg_ch = s_df.groupby(["Customer Type", "Channel"],as_index=False)[metric_col].sum()
-        fig = px.bar(seg_ch,x="Customer Type",y=metric_col,color="Channel",barmode="stack",title=f"{metric_label} by Segment × Channel")
-        fig.update_layout(xaxis_title="",yaxis_title=metric_label,margin=dict(t=120))
-        fig = style_fig(fig, height=470)
-        fig.update_layout(legend=dict(orientation="v",yanchor="top",y=1,xanchor="left",x=1.02),margin=dict(r=180))
-        st.plotly_chart(fig, use_container_width=True, key=pkey("seg_stack"))
-
-        st.subheader("Description")
-        st.write("""
-        This chart shows **net sales (CAD) by customer segment**, broken down by sales channel. 
-        It helps identify which customer types and channels contribute most to revenue.
-        """)
-
-        st.subheader("Insights")
-
-        seg_summary = seg_ch.groupby("Customer Type", as_index=False)[metric_col].sum().sort_values(metric_col,
-                                                                                                    ascending=False)
-        top_segment_share = seg_summary[metric_col].iloc[0] / seg_summary[metric_col].sum() if seg_summary[
-                                                                                                   metric_col].sum() > 0 else np.nan
-        top_segments = seg_summary["Customer Type"].head(3).tolist()
-        minor_segments_present = len(seg_summary) > 3
-        missing_segments = seg_summary["Customer Type"].isna().sum()
-
-        top_channels = \
-        seg_ch[seg_ch["Customer Type"].isin(top_segments)].groupby(["Customer Type", "Channel"], as_index=False)[
-            metric_col].sum()
-        dominant_channels = top_channels.loc[top_channels.groupby("Customer Type")[metric_col].idxmax()]
-
-        insights = []
-        if np.isfinite(top_segment_share):
-            insights.append(
-                f"- **{top_segments[0]}** is the top segment, contributing ~{top_segment_share * 100:.0f}% of total sales."
-            )
-        if minor_segments_present:
-            insights.append(
-                f"- Other top segments include {', '.join(top_segments[1:])}, contributing noticeably less."
-            )
-        if missing_segments > 0:
-            insights.append(
-                f"- There are {missing_segments} records with missing Customer Type, indicating incomplete data."
-            )
-
-        for _, row in dominant_channels.iterrows():
-            insights.append(
-                f"- For **{row['Customer Type']}**, the dominant sales channel is **{row['Channel']}**, contributing {row[metric_col]:,.0f} CAD."
-            )
-
-        st.markdown("\n".join(insights) if insights else "- No insights available.")
-
-        recs = []
-        if np.isfinite(top_segment_share) and top_segment_share > 0.3:
-            recs.append(
-                f"- Focus on high-value segments: {', '.join(top_segments)}. Concentrating efforts here can maximize revenue."
-            )
-        if missing_segments > 0:
-            recs.append(
-                "- Investigate and clean missing Customer Type data to improve accuracy and decision-making."
-            )
-        recs.append(
-            "- Leverage dominant channels for top segments (e.g., Online, Wholesale) to boost sales efficiency."
-        )
-        if minor_segments_present:
-            recs.append(
-                "- Explore growth opportunities in minor segments through targeted promotions or partnerships."
-            )
-
-        if recs:
-            st.subheader("Recommendations")
-            st.markdown("\n".join(recs))
-
-    with s_tabs[3]:
-        cust_stats = (df.groupby(["Customer Name", "Customer Type"], as_index=False).agg(Orders=("OrderCount", "sum"),Total_Net_Sales=("Net Sales", "sum"), Avg_Order=("Net Sales", "mean"), Last_Purchase=("Date", "max"))
-        )
-        cust_stats["Recency"] = (pd.Timestamp.today() - cust_stats["Last_Purchase"]).dt.days
-        cust_stats["CLV"] = cust_stats["Avg_Order"] * cust_stats["Orders"]
-        for col in ["Orders", "Total_Net_Sales", "Avg_Order", "CLV", "Recency"]:
-            cust_stats[col] = pd.to_numeric(cust_stats[col], errors="coerce")
-        cust_stats["Last_Purchase_str"] = cust_stats["Last_Purchase"].dt.strftime("%Y-%m-%d")
-        cust_stats["CLV_scaled"] = cust_stats["CLV"] / cust_stats["CLV"].max() * 100
-
-        top_cust_stats = cust_stats.sort_values(by="Total_Net_Sales", ascending=False).head(20)
-
-        c1, c2 = st.columns([1, 1])
-        with c1:
-            st.markdown("#### Top 20 Customers by Net Sales")
-            st.dataframe(top_cust_stats[["Customer Name", "Customer Type", "Orders", "Total_Net_Sales", "Avg_Order"]].style.format({"Total_Net_Sales": "{:,.0f}", "Avg_Order": "{:,.0f}"}),use_container_width=True)
-
-        cust_stats['hover_text'] = (
-                "Customer: " + cust_stats['Customer Name'] + "<br>" +
-                "Customer Type: " + cust_stats['Customer Type'] + "<br>" +
-                "Orders: " + cust_stats['Orders'].astype(str) + "<br>" +
-                "Total Net Sales: $" + cust_stats['Total_Net_Sales'].map("{:,.0f}".format) + "<br>" +
-                "Avg Order: $" + cust_stats['Avg_Order'].map("{:,.0f}".format) + "<br>" +
-                "CLV: $" + cust_stats['CLV'].map("{:,.0f}".format) + "<br>" +
-                "Recency (days): " + cust_stats['Recency'].astype(str) + "<br>" +
-                "Last Purchase: " + cust_stats['Last_Purchase'].dt.strftime("%Y-%m-%d")
-        )
-        with c2:
-            fig = px.scatter(cust_stats,x="Orders",y="Total_Net_Sales",color="Customer Type",size="CLV_scaled", title="Customer Value – Orders vs Total Net Sales (bubble = CLV)", hover_name='hover_text',labels={"Customer Type": ""})
-            fig.update_layout(xaxis_title="Orders",yaxis_title="Total Net Sales (CAD)",legend=dict( orientation="v",x=1.02, xanchor="left",y=1, yanchor="top"),margin=dict(t=120,   r=150,l=50,b=50))
-            fig = style_fig(fig, height=450) if 'style_fig' in globals() else fig
-            st.plotly_chart(fig, use_container_width=True, key=pkey("seg_scatter"))
-
-        st.subheader("Description")
-        st.write("""
-        The table shows the top 20 customers ranked by **total net sales**, dominated by Galleries and Museums.  
-        The chart plots **Orders vs Total Net Sales**, with bubble size representing **Customer Lifetime Value (CLV)**.
-        """)
-
-        st.subheader("Insights")
-        top_customers = top_cust_stats["Customer Name"].tolist()
-        top_types = top_cust_stats["Customer Type"].value_counts().head(3).index.tolist()
-
-        insights = [
-            f"- **{top_types[0]}** customers generate the highest sales and CLV.",
-            f"- High net sales result from both frequent orders and high average order value.",
-            "- A few customers stand out as high-value despite fewer orders, indicating strong growth potential."
-        ]
-
-        st.markdown("\n".join(insights))
-
-        st.subheader("Recommendations")
-        recs = [
-            "- Prioritize retention and relationship management for top Galleries and Museums.",
-            "- Use targeted upselling for high-value, low-frequency buyers.",
-            "- Focus growth efforts on mid-tier customers with increasing CLV."
-        ]
-
-        st.markdown("\n".join(recs))
-
-
-    with s_tabs[4]:
-        st.markdown("#### RFM Bubble Chart: Recency × Frequency × Monetary")
-
-        ref_date = s_df["Date"].max()
-
-        rfm = (s_df.groupby("Customer Name", as_index=False).agg(LastPurchase=("Date", "max"), Frequency=("OrderCount", "sum"),Monetary=("Net Sales", "sum")))
-        rfm["RecencyDays"] = (ref_date - rfm["LastPurchase"]).dt.days
-        rfm = rfm.replace([np.inf, -np.inf], np.nan).dropna(subset=["RecencyDays", "Frequency", "Monetary"])
-
-        rfm["CLV_scaled"] = (rfm["Monetary"] * rfm["Frequency"]) / (rfm["Monetary"] * rfm["Frequency"]).max() * 100
-
-        fig = px.scatter(rfm,x="RecencyDays", y="Frequency", size="CLV_scaled", color="Monetary",
-            hover_name="Customer Name",
-            hover_data={"RecencyDays": True,"Frequency": True,"Monetary": True},title="RFM Bubble Chart: Recency × Frequency × Monetary",color_continuous_scale="Viridis",size_max=40)
-
-        fig.update_layout(xaxis_title="Recency (days since last purchase)",yaxis_title="Frequency (Number of Orders)", margin=dict(t=50, l=50, r=50, b=50))
-
-        fig = style_fig(fig, height=450) if 'style_fig' in globals() else fig
-        st.plotly_chart(fig, use_container_width=True, key=pkey("rfm_bubble_2d"))
-
-        st.subheader("Description")
-        st.write("""
-        The RFM bubble chart plots customers by recency (days since last purchase) on the x-axis and frequency (number of orders) on the y-axis, with bubble size and color representing monetary value. Larger, brighter bubbles indicate higher-spending customers.***.
-        """)
-
-        st.subheader("Insights")
-        insights = [
-            "- High-value customers are recent and purchase frequently.",
-            "- Inactive customers cluster at high Recency with low Frequency.",
-            "- Some customers spend a lot despite low purchase frequency."
-        ]
-        st.markdown("\n".join(insights))
-
-        st.subheader("Recommendations")
-        recs = [
-            "- Retain top customers with loyalty programs or exclusive offers.",
-            "- Re-engage inactive customers using targeted campaigns.",
-            "- Encourage repeat purchases from high-spend, low-frequency customers."
-        ]
-        st.markdown("\n".join(recs))
-
-    with s_tabs[5]:
-        cols = ["Sale ID", "Date", "Customer Name", "Customer Type", "Country", "City", "Channel", metric_col, "Net Sales"]
-        cols = [c for c in cols if c in s_df.columns]
-        subset = s_df[cols].copy()
-        subset = subset.loc[:, ~subset.columns.duplicated()]
-        st.dataframe(subset.head(max_rows), use_container_width=True)
         st.download_button(
-            "Download customer-segment subset (CSV)",
-            data=subset.to_csv(index=False).encode("utf-8"),
-            file_name="customer_segments_subset.csv",
+            "Download Ownership (CSV)",
+            data=out.to_csv(index=False).encode("utf-8"),
+            file_name="ownership_filtered.csv",
             mime="text/csv",
-            key="dl_segments",
+            key="dl_ownership",
         )
 
 # -----------------------------
