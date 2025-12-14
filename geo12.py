@@ -665,6 +665,7 @@ st.markdown("---")
     tab_ownership,
     tab_seasonality,
     tab_compliance,
+    tab_stats   # ✅ NEW (between Compliance and All Data)
     tab_data,
 ) = st.tabs(
     [
@@ -677,6 +678,7 @@ st.markdown("---")
         "Ownership",
         "Seasonality",
         "Compliance",
+        "Stats"      # ✅ NEW (between Compliance and All Data)
         "All Data",
     ]
 )
@@ -2477,228 +2479,6 @@ with tab_geo:
 
         insights_expander("Shipping Lag", insights_md, why_md, recs_md)
         st.divider()
-
-    # ======================
-    # TAB 3: Stats  (WITH Excel-style tables)
-    # ======================
-    with tabs[3]:
-        st.subheader("Stats")
-
-        # SciPy (safe)
-        try:
-            from scipy import stats
-        except Exception:
-            stats = None
-
-        # local p-value formatter (safe)
-        def _p_fmt(v):
-            try:
-                v = float(v)
-            except Exception:
-                return "—"
-            if not np.isfinite(v):
-                return "—"
-            if v < 1e-4:
-                return "<0.0001"
-            return f"{v:.4f}"
-
-        # numeric metric column (safe)
-        df_stat = df.copy()
-        df_stat[metric] = pd.to_numeric(df_stat[metric], errors="coerce")
-
-        # -----------------------------
-        # 1) Channel value differences (Kruskal) + Excel table
-        # -----------------------------
-        st.markdown("### 1) Do channels differ on order value?")
-
-        ch_tbl = (
-            df_stat.dropna(subset=["Channel", metric])
-            .groupby("Channel", as_index=False)
-            .agg(
-                Orders=(metric, "count"),
-                Total_Value=(metric, "sum"),
-                Avg_Value=(metric, "mean"),
-                Median_Value=(metric, "median"),
-                P90_Value=(metric, lambda x: x.quantile(0.90)),
-            )
-        )
-
-        if ch_tbl.empty:
-            st.info("Not enough data for channel stats under current filters.")
-            p = np.nan
-        else:
-            ch_tbl["Share"] = np.where(
-                ch_tbl["Total_Value"].sum() > 0,
-                ch_tbl["Total_Value"] / ch_tbl["Total_Value"].sum(),
-                np.nan,
-            )
-            ch_tbl = ch_tbl.sort_values("Total_Value", ascending=False)
-
-            # nice rounding for "Excel look"
-            ch_tbl_disp = ch_tbl.copy()
-            ch_tbl_disp["Total_Value"] = ch_tbl_disp["Total_Value"].round(0)
-            ch_tbl_disp["Avg_Value"] = ch_tbl_disp["Avg_Value"].round(0)
-            ch_tbl_disp["Median_Value"] = ch_tbl_disp["Median_Value"].round(0)
-            ch_tbl_disp["P90_Value"] = ch_tbl_disp["P90_Value"].round(0)
-            ch_tbl_disp["Share"] = (ch_tbl_disp["Share"] * 100).round(1)
-
-            ch_tbl_disp = ch_tbl_disp.rename(columns={
-                "Total_Value": f"Total ({metric_name})",
-                "Avg_Value": f"Avg ({metric_name})",
-                "Median_Value": f"Median ({metric_name})",
-                "P90_Value": f"P90 ({metric_name})",
-                "Share": "Share (%)",
-            })
-
-            st.dataframe(ch_tbl_disp, use_container_width=True)
-            st.download_button(
-                "Download channel stats (CSV)",
-                data=ch_tbl_disp.to_csv(index=False).encode("utf-8"),
-                file_name="stats_channel_summary.csv",
-                mime="text/csv",
-                key="dl_stats_channel_summary",
-            )
-
-            if stats is None:
-                p = np.nan
-                st.info("SciPy not available in this environment (tests disabled).")
-            else:
-                grp = (
-                    df_stat.dropna(subset=["Channel", metric])
-                    .groupby("Channel")[metric]
-                    .apply(lambda x: x.dropna().values)
-                )
-                if len(grp) >= 2:
-                    _, p = stats.kruskal(*grp.tolist())
-                    st.write(
-                        f"p-value: **{_p_fmt(p)}** → "
-                        + ("Yes, typical order values differ across channels." if p < 0.05 else "No strong evidence of difference.")
-                    )
-                else:
-                    p = np.nan
-                    st.write("Not enough channels in current filters for this test.")
-
-        st.divider()
-
-        # -----------------------------
-        # 2) Channel mix differs by country? (Chi-square) + Excel tables
-        # -----------------------------
-        st.markdown("### 2) Is channel mix different by country?")
-
-        if len(country_totals) == 0:
-            st.info("No country totals available under current filters.")
-            p2 = np.nan
-        else:
-            top_for_test = country_totals.head(min(10, len(country_totals))).index
-            tmp = df_stat.copy()
-            tmp["Country (top)"] = np.where(tmp["Country"].isin(top_for_test), tmp["Country"], "Other")
-
-            ct = pd.crosstab(tmp["Country (top)"], tmp["Channel"])
-
-            if ct.shape[0] >= 2 and ct.shape[1] >= 2:
-                st.markdown("**Counts (Country × Channel)**")
-                st.dataframe(ct, use_container_width=True)
-                st.download_button(
-                    "Download counts table (CSV)",
-                    data=ct.to_csv().encode("utf-8"),
-                    file_name="stats_country_channel_counts.csv",
-                    mime="text/csv",
-                    key="dl_stats_counts",
-                )
-
-                ct_share = ct.div(ct.sum(axis=1).replace(0, np.nan), axis=0) * 100
-                ct_share = ct_share.round(1)
-                st.markdown("**Row Share % (within each country)**")
-                st.dataframe(ct_share, use_container_width=True)
-                st.download_button(
-                    "Download share table (CSV)",
-                    data=ct_share.to_csv().encode("utf-8"),
-                    file_name="stats_country_channel_share_pct.csv",
-                    mime="text/csv",
-                    key="dl_stats_share",
-                )
-
-                if stats is not None:
-                    _, p2, _, _ = stats.chi2_contingency(ct)
-                    st.write(
-                        f"p-value: **{_p_fmt(p2)}** → "
-                        + ("Yes, channel mix differs by country." if p2 < 0.05 else "No strong evidence of different mixes.")
-                    )
-                else:
-                    p2 = np.nan
-                    st.info("SciPy not available in this environment (tests disabled).")
-            else:
-                p2 = np.nan
-                st.write("Not enough data for this test with current filters.")
-
-        st.divider()
-
-        # -----------------------------
-        # 3) Strongest numeric relationships (Spearman) + Excel table
-        # -----------------------------
-        st.markdown("### 3) Strongest numeric relationships (Spearman)")
-
-        if stats is None:
-            st.info("SciPy not available in this environment (Spearman disabled).")
-        else:
-            driver_candidates = [
-                "Discount (CAD)", "Shipping (CAD)", "Taxes Collected (CAD)",
-                "Color Count (#)", "length", "width", "weight"
-            ]
-            if lag_col is not None:
-                driver_candidates.append(lag_col)
-
-            drivers = [c for c in driver_candidates if c in df_stat.columns]
-            rows = []
-
-            for c in drivers:
-                x = pd.to_numeric(df_stat[c], errors="coerce")
-                y = pd.to_numeric(df_stat[metric], errors="coerce")
-                ok = x.notna() & y.notna()
-                if ok.sum() >= 30:
-                    r, pv = stats.spearmanr(x[ok], y[ok])
-                    rows.append((c, float(r), float(pv), int(ok.sum())))
-
-            if rows:
-                out = pd.DataFrame(rows, columns=["Variable", "Spearman r", "p-value", "n"])
-                out["|r|"] = out["Spearman r"].abs()
-                out = (
-                    out.sort_values("|r|", ascending=False)
-                    .drop(columns=["|r|"])
-                    .head(12)
-                    .reset_index(drop=True)
-                )
-
-                out_disp = out.copy()
-                out_disp["Spearman r"] = out_disp["Spearman r"].round(3)
-                out_disp["p-value"] = out_disp["p-value"].apply(_p_fmt)
-
-                st.dataframe(out_disp, use_container_width=True)
-                st.download_button(
-                    "Download correlations (CSV)",
-                    data=out_disp.to_csv(index=False).encode("utf-8"),
-                    file_name="stats_spearman_correlations.csv",
-                    mime="text/csv",
-                    key="dl_stats_corr",
-                )
-            else:
-                st.write("Not enough data for correlation stats under current filters.")
-
-        insights_md = "\n".join([
-            "- Stats help confirm whether chart differences are likely real (not random noise).",
-            "- If significant, treat channel/country strategy as market-specific (not one-size-fits-all).",
-        ])
-        why_md = "This prevents overreacting to small samples and supports decisions with evidence."
-        recs_md = "\n".join([
-            "- If channels differ, prioritize the channels with the best value + volume.",
-            "- If mix differs by country, plan channel strategy per market using the heatmap tab.",
-            "- Use the top 2–3 Spearman drivers as KPIs/filters (don’t overload the dashboard).",
-        ])
-
-        insights_expander("Stats", insights_md, why_md, recs_md)
-        st.divider()
-
-
 
 # -----------------------------
 # TAB 6: Inventory Timing 
@@ -4890,6 +4670,227 @@ with tab_compliance:
 - Track coverage over time to confirm process changes are improving adoption.
 """
         render_dir_expander_metrics("Chart 7", definitions_md, metrics, recs_md)
+
+# ======================
+    # TAB 3: Stats  (WITH Excel-style tables)
+    # ======================
+    with tabs[3]:
+        st.subheader("Stats")
+
+        # SciPy (safe)
+        try:
+            from scipy import stats
+        except Exception:
+            stats = None
+
+        # local p-value formatter (safe)
+        def _p_fmt(v):
+            try:
+                v = float(v)
+            except Exception:
+                return "—"
+            if not np.isfinite(v):
+                return "—"
+            if v < 1e-4:
+                return "<0.0001"
+            return f"{v:.4f}"
+
+        # numeric metric column (safe)
+        df_stat = df.copy()
+        df_stat[metric] = pd.to_numeric(df_stat[metric], errors="coerce")
+
+        # -----------------------------
+        # 1) Channel value differences (Kruskal) + Excel table
+        # -----------------------------
+        st.markdown("### 1) Do channels differ on order value?")
+
+        ch_tbl = (
+            df_stat.dropna(subset=["Channel", metric])
+            .groupby("Channel", as_index=False)
+            .agg(
+                Orders=(metric, "count"),
+                Total_Value=(metric, "sum"),
+                Avg_Value=(metric, "mean"),
+                Median_Value=(metric, "median"),
+                P90_Value=(metric, lambda x: x.quantile(0.90)),
+            )
+        )
+
+        if ch_tbl.empty:
+            st.info("Not enough data for channel stats under current filters.")
+            p = np.nan
+        else:
+            ch_tbl["Share"] = np.where(
+                ch_tbl["Total_Value"].sum() > 0,
+                ch_tbl["Total_Value"] / ch_tbl["Total_Value"].sum(),
+                np.nan,
+            )
+            ch_tbl = ch_tbl.sort_values("Total_Value", ascending=False)
+
+            # nice rounding for "Excel look"
+            ch_tbl_disp = ch_tbl.copy()
+            ch_tbl_disp["Total_Value"] = ch_tbl_disp["Total_Value"].round(0)
+            ch_tbl_disp["Avg_Value"] = ch_tbl_disp["Avg_Value"].round(0)
+            ch_tbl_disp["Median_Value"] = ch_tbl_disp["Median_Value"].round(0)
+            ch_tbl_disp["P90_Value"] = ch_tbl_disp["P90_Value"].round(0)
+            ch_tbl_disp["Share"] = (ch_tbl_disp["Share"] * 100).round(1)
+
+            ch_tbl_disp = ch_tbl_disp.rename(columns={
+                "Total_Value": f"Total ({metric_name})",
+                "Avg_Value": f"Avg ({metric_name})",
+                "Median_Value": f"Median ({metric_name})",
+                "P90_Value": f"P90 ({metric_name})",
+                "Share": "Share (%)",
+            })
+
+            st.dataframe(ch_tbl_disp, use_container_width=True)
+            st.download_button(
+                "Download channel stats (CSV)",
+                data=ch_tbl_disp.to_csv(index=False).encode("utf-8"),
+                file_name="stats_channel_summary.csv",
+                mime="text/csv",
+                key="dl_stats_channel_summary",
+            )
+
+            if stats is None:
+                p = np.nan
+                st.info("SciPy not available in this environment (tests disabled).")
+            else:
+                grp = (
+                    df_stat.dropna(subset=["Channel", metric])
+                    .groupby("Channel")[metric]
+                    .apply(lambda x: x.dropna().values)
+                )
+                if len(grp) >= 2:
+                    _, p = stats.kruskal(*grp.tolist())
+                    st.write(
+                        f"p-value: **{_p_fmt(p)}** → "
+                        + ("Yes, typical order values differ across channels." if p < 0.05 else "No strong evidence of difference.")
+                    )
+                else:
+                    p = np.nan
+                    st.write("Not enough channels in current filters for this test.")
+
+        st.divider()
+
+        # -----------------------------
+        # 2) Channel mix differs by country? (Chi-square) + Excel tables
+        # -----------------------------
+        st.markdown("### 2) Is channel mix different by country?")
+
+        if len(country_totals) == 0:
+            st.info("No country totals available under current filters.")
+            p2 = np.nan
+        else:
+            top_for_test = country_totals.head(min(10, len(country_totals))).index
+            tmp = df_stat.copy()
+            tmp["Country (top)"] = np.where(tmp["Country"].isin(top_for_test), tmp["Country"], "Other")
+
+            ct = pd.crosstab(tmp["Country (top)"], tmp["Channel"])
+
+            if ct.shape[0] >= 2 and ct.shape[1] >= 2:
+                st.markdown("**Counts (Country × Channel)**")
+                st.dataframe(ct, use_container_width=True)
+                st.download_button(
+                    "Download counts table (CSV)",
+                    data=ct.to_csv().encode("utf-8"),
+                    file_name="stats_country_channel_counts.csv",
+                    mime="text/csv",
+                    key="dl_stats_counts",
+                )
+
+                ct_share = ct.div(ct.sum(axis=1).replace(0, np.nan), axis=0) * 100
+                ct_share = ct_share.round(1)
+                st.markdown("**Row Share % (within each country)**")
+                st.dataframe(ct_share, use_container_width=True)
+                st.download_button(
+                    "Download share table (CSV)",
+                    data=ct_share.to_csv().encode("utf-8"),
+                    file_name="stats_country_channel_share_pct.csv",
+                    mime="text/csv",
+                    key="dl_stats_share",
+                )
+
+                if stats is not None:
+                    _, p2, _, _ = stats.chi2_contingency(ct)
+                    st.write(
+                        f"p-value: **{_p_fmt(p2)}** → "
+                        + ("Yes, channel mix differs by country." if p2 < 0.05 else "No strong evidence of different mixes.")
+                    )
+                else:
+                    p2 = np.nan
+                    st.info("SciPy not available in this environment (tests disabled).")
+            else:
+                p2 = np.nan
+                st.write("Not enough data for this test with current filters.")
+
+        st.divider()
+
+        # -----------------------------
+        # 3) Strongest numeric relationships (Spearman) + Excel table
+        # -----------------------------
+        st.markdown("### 3) Strongest numeric relationships (Spearman)")
+
+        if stats is None:
+            st.info("SciPy not available in this environment (Spearman disabled).")
+        else:
+            driver_candidates = [
+                "Discount (CAD)", "Shipping (CAD)", "Taxes Collected (CAD)",
+                "Color Count (#)", "length", "width", "weight"
+            ]
+            if lag_col is not None:
+                driver_candidates.append(lag_col)
+
+            drivers = [c for c in driver_candidates if c in df_stat.columns]
+            rows = []
+
+            for c in drivers:
+                x = pd.to_numeric(df_stat[c], errors="coerce")
+                y = pd.to_numeric(df_stat[metric], errors="coerce")
+                ok = x.notna() & y.notna()
+                if ok.sum() >= 30:
+                    r, pv = stats.spearmanr(x[ok], y[ok])
+                    rows.append((c, float(r), float(pv), int(ok.sum())))
+
+            if rows:
+                out = pd.DataFrame(rows, columns=["Variable", "Spearman r", "p-value", "n"])
+                out["|r|"] = out["Spearman r"].abs()
+                out = (
+                    out.sort_values("|r|", ascending=False)
+                    .drop(columns=["|r|"])
+                    .head(12)
+                    .reset_index(drop=True)
+                )
+
+                out_disp = out.copy()
+                out_disp["Spearman r"] = out_disp["Spearman r"].round(3)
+                out_disp["p-value"] = out_disp["p-value"].apply(_p_fmt)
+
+                st.dataframe(out_disp, use_container_width=True)
+                st.download_button(
+                    "Download correlations (CSV)",
+                    data=out_disp.to_csv(index=False).encode("utf-8"),
+                    file_name="stats_spearman_correlations.csv",
+                    mime="text/csv",
+                    key="dl_stats_corr",
+                )
+            else:
+                st.write("Not enough data for correlation stats under current filters.")
+
+        insights_md = "\n".join([
+            "- Stats help confirm whether chart differences are likely real (not random noise).",
+            "- If significant, treat channel/country strategy as market-specific (not one-size-fits-all).",
+        ])
+        why_md = "This prevents overreacting to small samples and supports decisions with evidence."
+        recs_md = "\n".join([
+            "- If channels differ, prioritize the channels with the best value + volume.",
+            "- If mix differs by country, plan channel strategy per market using the heatmap tab.",
+            "- Use the top 2–3 Spearman drivers as KPIs/filters (don’t overload the dashboard).",
+        ])
+
+        insights_expander("Stats", insights_md, why_md, recs_md)
+        st.divider()
+
 # -----------------------------
 # TAB: All Data
 # -----------------------------
