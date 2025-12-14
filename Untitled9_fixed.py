@@ -6,6 +6,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import plotly.io as pio
 from itertools import count
+import matplotlib.pyplot as plt
 
 # -----------------------------
 # Plotly + Streamlit Defaults
@@ -2177,117 +2178,170 @@ with tabs[4]:
 
         insights_expander("Data", insights_md, why_md, recs_md)
         st.divider()
-
 # -----------------------------
-# TAB: Inventory Timing (Seasonality-style: 3 subtabs)
+# TAB: Inventory Timing (Seasonality-style: 5 subtabs)
 # -----------------------------
-#TAB 1 — Timing Analysis (CDF Curve - Cumulative Distribution Function)
+with tab_timing:
+    # Base = filtered data
+    df_f = f.copy()
 
-with tab1:
-    st.subheader("📈 Shipment Timing Curve (CDF)")
-    st.write(
-        "This curve shows the cumulative proportion of total shipments completed over time. "
-        "It helps identify when most inventory movement occurs during the year."
-    )
+    # Pick a shipping date source (prefer Shipped Date; fallback to Date)
+    ship_date_col = "Shipped Date" if ("Shipped Date" in df_f.columns and df_f["Shipped Date"].notna().any()) else "Date"
+    df_f[ship_date_col] = pd.to_datetime(df_f[ship_date_col], errors="coerce")
 
+    # Month bucket
+    df_f["__month_dt"] = df_f[ship_date_col].dt.to_period("M").dt.to_timestamp()
+
+    # Units proxy (use a quantity-like column if it exists; else 1 per row)
+    unit_candidates = [c for c in ["Units", "Unit", "Quantity", "Qty", "Pieces"] if c in df_f.columns]
+    if unit_candidates:
+        df_f["__units"] = pd.to_numeric(df_f[unit_candidates[0]], errors="coerce").fillna(0)
+    elif "OrderCount" in df_f.columns:
+        df_f["__units"] = pd.to_numeric(df_f["OrderCount"], errors="coerce").fillna(1)
+    else:
+        df_f["__units"] = 1
+
+    # Product proxy
+    if "Product Type" in df_f.columns:
+        df_f["__product"] = df_f["Product Type"].fillna("Unknown").astype(str)
+    else:
+        df_f["__product"] = "Unknown"
+
+    # Drop rows missing month
+    df_f = df_f.dropna(subset=["__month_dt"])
+
+    # Precompute series used across tabs (prevents NameError)
     monthly_series = (
-        df_f.groupby('__month_dt')['__units']
+        df_f.groupby("__month_dt")["__units"]
         .sum()
         .sort_index()
     )
 
-    cdf = monthly_series.cumsum() / monthly_series.sum()
-
-    fig, ax = plt.subplots(figsize=(10, 4))
-    ax.plot(cdf.index, cdf.values, marker='o')
-    ax.set_title("Cumulative Distribution of Shipments")
-    ax.set_ylabel("Proportion of Total Shipments")
-    ax.set_ylim(0, 1.05)
-    ax.grid(alpha=0.25)
-    st.pyplot(fig, use_container_width=True)
-
-    #Seasonality chart
-    st.subheader("📅 Monthly Shipping Volume")
-    fig2, ax2 = plt.subplots(figsize=(10, 4))
-    ax2.bar(monthly_series.index, monthly_series.values)
-    ax2.set_title("Monthly Shipments (Seasonality)")
-    ax2.set_ylabel("Units Shipped")
-    st.pyplot(fig2, use_container_width=True)
-
-#TAB 2 — Product Performance
-
-with tab2:
-    st.subheader("📊 Fast vs Slow Moving Products")
-
     product_volume = (
-        df_f.groupby('__product')['__units']
+        df_f.groupby("__product")["__units"]
         .sum()
         .sort_values()
     )
 
-    fig3, ax3 = plt.subplots(figsize=(10, 4))
-    product_volume.plot(kind='barh', ax=ax3)
-    ax3.set_title("Units Shipped by Product Type")
-    ax3.set_xlabel("Units Shipped")
-    st.pyplot(fig3, use_container_width=True)
+    total_units = int(monthly_series.sum()) if len(monthly_series) else 0
+    avg_monthly = float(monthly_series.mean()) if len(monthly_series) else 0.0
+    peak_month = monthly_series.idxmax().strftime("%B %Y") if len(monthly_series) else "—"
 
-#TAB 4 — Insights & Recommendations
-
-with tab4:
-    st.subheader("💡 Key Insights")
-
-    #Trend direction
-    trend_df = monthly_series.reset_index()
-    trend_df['t'] = np.arange(len(trend_df))
-
-    slope = (
-        np.polyfit(trend_df['t'], trend_df['__units'], 1)[0]
-        if len(trend_df) > 1 else 0
+    # Create the subtabs your code expects
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(
+        [
+            "Timing Analysis",
+            "Product Performance",
+            "Notes",
+            "Insights & Recommendations",
+            "Summary",
+        ]
     )
 
-    trend_label = (
-        "Increasing" if slope > 0.05
-        else "Decreasing" if slope < -0.05
-        else "Stable"
-    )
+    # TAB 1 — Timing Analysis (CDF + Monthly Shipments)
+    with tab1:
+        st.subheader("📈 Shipment Timing Curve (CDF)")
+        st.write(
+            "This curve shows the cumulative proportion of total shipments completed over time. "
+            "It helps identify when most inventory movement occurs during the year."
+        )
 
-    top_products = product_volume.sort_values(ascending=False).head(3)
-    slow_products = product_volume.head(3)
+        if monthly_series.empty or monthly_series.sum() == 0:
+            st.info("Not enough shipment/timing data to plot Inventory Timing under the current filters.")
+        else:
+            cdf = monthly_series.cumsum() / monthly_series.sum()
 
-    st.markdown(f"**Overall shipment trend:** {trend_label}")
-    st.markdown(f"**Peak shipping month:** {peak_month}")
+            fig, ax = plt.subplots(figsize=(10, 4))
+            ax.plot(cdf.index, cdf.values, marker="o")
+            ax.set_title("Cumulative Distribution of Shipments")
+            ax.set_ylabel("Proportion of Total Shipments")
+            ax.set_ylim(0, 1.05)
+            ax.grid(alpha=0.25)
+            st.pyplot(fig, use_container_width=True)
 
-    st.markdown("**Top-moving product types:**")
-    for p, v in top_products.items():
-        st.write(f"- {p}: {int(v):,} units")
+            st.subheader("📅 Monthly Shipping Volume")
+            fig2, ax2 = plt.subplots(figsize=(10, 4))
+            ax2.bar(monthly_series.index, monthly_series.values)
+            ax2.set_title("Monthly Shipments (Seasonality)")
+            ax2.set_ylabel("Units Shipped")
+            ax2.grid(alpha=0.25, axis="y")
+            st.pyplot(fig2, use_container_width=True)
 
-    st.markdown("**Slow-moving product types:**")
-    for p, v in slow_products.items():
-        st.write(f"- {p}: {int(v):,} units")
+    # TAB 2 — Product Performance
+    with tab2:
+        st.subheader("📊 Fast vs Slow Moving Products")
 
-    st.markdown("### 📌 Recommendations")
-    st.write("- Increase safety stock ahead of peak shipping periods.")
-    st.write("- Review slow-moving products to reduce holding costs.")
-    st.write("- Align procurement cycles with observed shipment timing.")
-    st.write("- Consider adding *Received Date* data to enable true inventory aging metrics.")
+        if product_volume.empty:
+            st.info("Not enough product data to plot Product Performance under the current filters.")
+        else:
+            fig3, ax3 = plt.subplots(figsize=(10, 4))
+            product_volume.plot(kind="barh", ax=ax3)
+            ax3.set_title("Units Shipped by Product Type")
+            ax3.set_xlabel("Units Shipped")
+            ax3.grid(alpha=0.25, axis="x")
+            st.pyplot(fig3, use_container_width=True)
 
-#TAB 5 — Summary
+    # TAB 3 — Notes (kept as placeholder so tab indices stay consistent)
+    with tab3:
+        st.subheader("Notes")
+        st.write("This tab is reserved for future inventory timing notes / definitions.")
 
-with tab5:
-    st.subheader("📄 Executive Summary")
+    # TAB 4 — Insights & Recommendations
+    with tab4:
+        st.subheader("💡 Key Insights")
 
-    st.markdown(f"""
-    **Inventory Performance Overview (Filtered View)**
+        if monthly_series.empty:
+            st.info("Not enough shipment/timing data to compute insights under the current filters.")
+        else:
+            trend_df = monthly_series.reset_index()
+            trend_df.columns = ["__month_dt", "__units"]
+            trend_df["t"] = np.arange(len(trend_df))
 
-    - **Total units shipped:** {total_units:,}
-    - **Peak operational period:** {peak_month}
-    - **Average monthly shipments:** {avg_monthly:.1f} units
-    - **Shipment timing patterns** reveal when inventory movement is most intense
+            slope = np.polyfit(trend_df["t"], trend_df["__units"], 1)[0] if len(trend_df) > 1 else 0
 
-    This dashboard focuses exclusively on **inventory timing and movement**, 
-    providing leadership with actionable insights for stocking, planning, 
-    and operational efficiency.
-    """)
+            trend_label = (
+                "Increasing" if slope > 0.05
+                else "Decreasing" if slope < -0.05
+                else "Stable"
+            )
+
+            top_products = product_volume.sort_values(ascending=False).head(3)
+            slow_products = product_volume.head(3)
+
+            st.markdown(f"**Overall shipment trend:** {trend_label}")
+            st.markdown(f"**Peak shipping month:** {peak_month}")
+
+            st.markdown("**Top-moving product types:**")
+            for p, v in top_products.items():
+                st.write(f"- {p}: {int(v):,} units")
+
+            st.markdown("**Slow-moving product types:**")
+            for p, v in slow_products.items():
+                st.write(f"- {p}: {int(v):,} units")
+
+            st.markdown("### 📌 Recommendations")
+            st.write("- Increase safety stock ahead of peak shipping periods.")
+            st.write("- Review slow-moving products to reduce holding costs.")
+            st.write("- Align procurement cycles with observed shipment timing.")
+            st.write("- Consider adding *Received Date* data to enable true inventory aging metrics.")
+
+    # TAB 5 — Summary
+    with tab5:
+        st.subheader("📄 Executive Summary")
+
+        st.markdown(f"""
+        **Inventory Performance Overview (Filtered View)**
+
+        - **Total units shipped:** {total_units:,}
+        - **Peak operational period:** {peak_month}
+        - **Average monthly shipments:** {avg_monthly:.1f} units
+        - **Shipment timing patterns** reveal when inventory movement is most intense
+
+        This dashboard focuses exclusively on **inventory timing and movement**, 
+        providing leadership with actionable insights for stocking, planning, 
+        and operational efficiency.
+        """)
+
 # -----------------------------
 # TAB: Ownership (upgrade)
 # -----------------------------
