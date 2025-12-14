@@ -665,7 +665,7 @@ st.markdown("---")
     tab_ownership,
     tab_seasonality,
     tab_compliance,
-    tab_stats   # ✅ NEW (between Compliance and All Data)
+    tab_stats,   # ✅ NEW (between Compliance and All Data)
     tab_data,
 ) = st.tabs(
     [
