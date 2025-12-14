@@ -1291,107 +1291,322 @@ with tab_price:
         else:
             st.info("Missing required columns for forecasting (need Product Type, Grade, Month, Year, and a price column).")
 
+# ======================
+# TAB: PRODUCT MIX
+# ======================
+with tabs[PRODUCT_MIX_INDEX]:   # <-- change PRODUCT_MIX_INDEX to your Product Mix tab index
+    st.header("🧩 Product Mix")
 
-# -----------------------------
-# TAB: Product Mix (more advanced)
-# -----------------------------
-with tab_mix:
-    st.subheader("Product Mix – Revenue, Volume, and Structure")
-    m_df = f.copy()
+    # Use filtered df if you have it (common in your app), otherwise use df
+    pm_df = f.copy() if "f" in locals() else df.copy()
 
-    m_tabs = st.tabs(["Overview", "Channel Mix (100%)", "Structure (Sunburst)", "Sankey", "Data"])
+    # ---- Safety: required columns + numeric cleanup ----
+    for col in ["Price (CAD)", "Discount (CAD)"]:
+        if col in pm_df.columns:
+            pm_df[col] = pd.to_numeric(pm_df[col], errors="coerce").fillna(0)
 
-    with m_tabs[0]:
-        if safe_col(m_df, "Product Type"):
-            by_prod = m_df.groupby("Product Type", as_index=False)[metric_col].sum().sort_values(metric_col, ascending=False)
-            fig1 = px.bar(by_prod.head(18), x="Product Type", y=metric_col, title=f"Top Product Types by {metric_label}", text_auto=".2s")
-            fig1.update_layout(xaxis_title="", yaxis_title=metric_label)
-            fig1 = style_fig(fig1, height=430)
-            st.plotly_chart(fig1, use_container_width=True, key=pkey("mix_prod"))
+    if "Sale ID" not in pm_df.columns:
+        pm_df["Sale ID"] = np.arange(len(pm_df)) + 1
 
-            avg_by_prod = m_df.groupby("Product Type", as_index=False)["Net Sales"].mean().sort_values("Net Sales", ascending=False).head(18)
-            fig2 = px.bar(avg_by_prod, x="Net Sales", y="Product Type", orientation="h", title="Average Net Sales per Order – by Product Type", text_auto=".0f")
-            fig2.update_layout(xaxis_title="Avg Net Sales (CAD)", yaxis_title="")
-            fig2 = style_fig(fig2, height=470)
-            st.plotly_chart(fig2, use_container_width=True, key=pkey("mix_avg"))
-        else:
-            st.info("No 'Product Type' column found.")
+    for col in ["Product Type", "Grade", "Species"]:
+        if col not in pm_df.columns:
+            pm_df[col] = "Unknown"
 
-    with m_tabs[1]:
-        if safe_col(m_df, "Product Type"):
-            mix = m_df.groupby(["Product Type", "Channel"], as_index=False)[metric_col].sum()
-            totals = mix.groupby("Product Type", as_index=False)[metric_col].sum().rename(columns={metric_col: "Total"})
-            mix = mix.merge(totals, on="Product Type", how="left")
-            mix["Share"] = np.where(mix["Total"] > 0, mix[metric_col] / mix["Total"], 0)
+    # ---- Product Mix sub-tabs ----
+    pm_tabs = st.tabs(["Overview", "Interactive Treemap", "Revenue Analysis"])
 
-            top_prod = totals.sort_values("Total", ascending=False).head(12)["Product Type"].tolist()
-            mix2 = mix[mix["Product Type"].isin(top_prod)].copy()
+    # =====================================================
+    # TAB 1: OVERVIEW
+    # =====================================================
+    with pm_tabs[0]:
+        st.subheader("📊 Executive Summary")
 
-            fig = px.bar(
-                mix2,
-                x="Product Type",
-                y="Share",
-                color="Channel",
-                barmode="stack",
-                title="Channel Mix by Product Type (100% stacked, Top 12)",
-            )
-            fig.update_layout(xaxis_title="", yaxis_title="Share", yaxis_tickformat=".0%")
-            fig = style_fig(fig, height=460)
-            st.plotly_chart(fig, use_container_width=True, key=pkey("mix_100"))
-        else:
-            st.info("No 'Product Type' column found.")
+        col1, col2, col3, col4 = st.columns(4)
 
-    with m_tabs[2]:
-        path = [c for c in ["Product Type", "Grade", "Finish"] if safe_col(m_df, c)]
-        if len(path) >= 2:
-            fig = px.sunburst(m_df, path=path, values=metric_col, title=f"{metric_label} Structure (Sunburst)")
-            fig = style_fig(fig, height=520)
-            st.plotly_chart(fig, use_container_width=True, key=pkey("mix_sun"))
-        else:
-            st.info("Need at least 2 columns among Product Type / Grade / Finish for sunburst.")
+        total_rev = pm_df["Price (CAD)"].sum()
+        total_sales = len(pm_df)
+        avg_txn = pm_df["Price (CAD)"].mean() if total_sales else 0
+        mean_price = pm_df["Price (CAD)"].mean() if total_sales else 0
+        mean_disc = pm_df["Discount (CAD)"].mean() if total_sales else 0
+        avg_disc = (mean_disc / mean_price * 100) if mean_price else 0
 
-    with m_tabs[3]:
-        st.markdown("#### Sankey (Channel → Product Type → Grade)")
-        if safe_col(m_df, "Product Type") and safe_col(m_df, "Grade"):
-            sank = m_df.groupby(["Channel", "Product Type", "Grade"], as_index=False)[metric_col].sum()
-            sank = sank[sank[metric_col] > 0].copy()
+        with col1:
+            st.metric("Total Revenue", f"${total_rev:,.0f}", "CAD")
+        with col2:
+            st.metric("Total Sales", f"{total_sales:,}", "transactions")
+        with col3:
+            st.metric("Avg Transaction", f"${avg_txn:,.2f}")
+        with col4:
+            st.metric("Avg Discount", f"{avg_disc:.2f}%", "Strong pricing")
 
-            top_prod = m_df.groupby("Product Type")[metric_col].sum().sort_values(ascending=False).head(12).index
-            sank = sank[sank["Product Type"].isin(top_prod)]
+        st.markdown("---")
 
-            labels = pd.Index(pd.concat([sank["Channel"], sank["Product Type"], sank["Grade"]]).unique()).tolist()
-            idx = {lab: i for i, lab in enumerate(labels)}
-
-            a = sank.groupby(["Channel", "Product Type"], as_index=False)[metric_col].sum()
-            b = sank.groupby(["Product Type", "Grade"], as_index=False)[metric_col].sum()
-
-            src = [idx[x] for x in a["Channel"]] + [idx[x] for x in b["Product Type"]]
-            tgt = [idx[x] for x in a["Product Type"]] + [idx[x] for x in b["Grade"]]
-            val = a[metric_col].tolist() + b[metric_col].tolist()
-
-            fig = go.Figure(data=[go.Sankey(
-                node=dict(label=labels, pad=14, thickness=14),
-                link=dict(source=src, target=tgt, value=val),
-            )])
-            fig.update_layout(title=f"Sankey – {metric_label}", height=520, margin=dict(l=10, r=10, t=60, b=10))
-            fig = style_fig(fig, height=520)
-            st.plotly_chart(fig, use_container_width=True, key=pkey("mix_sankey"))
-        else:
-            st.info("Need 'Product Type' and 'Grade' columns for this Sankey view.")
-
-    with m_tabs[4]:
-        cols = ["Sale ID", "Date", "Product Type", "Grade", "Finish", "Channel", "Country", metric_col, "Net Sales"]
-        cols = [c for c in cols if c in m_df.columns]
-        subset = m_df[cols].copy()
-        subset = subset.loc[:, ~subset.columns.duplicated()]
-        st.dataframe(subset.head(max_rows), use_container_width=True)
-        st.download_button(
-            "Download product-mix subset (CSV)",
-            data=subset.to_csv(index=False).encode("utf-8"),
-            file_name="product_mix_subset.csv",
-            mime="text/csv",
-            key="dl_mix",
+        st.subheader("🔍 Key Findings")
+        st.markdown('<div class="insight-box">', unsafe_allow_html=True)
+        st.markdown(
+            f"""
+            Total revenue of **${total_rev:,.0f} CAD** across **{total_sales:,} transactions**
+            with an average of **${avg_txn:,.2f}** per sale.
+            The low discount rate of **{avg_disc:.2f}%** demonstrates strong pricing power
+            and supports premium positioning without relying on promotions.
+            """
         )
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        # Top/Bottom 3 blocks
+        st.markdown("---")
+        col1, col2 = st.columns(2)
+
+        product_stats = (
+            pm_df.groupby("Product Type")
+            .agg({"Price (CAD)": "sum", "Sale ID": "count"})
+            .reset_index()
+        )
+        product_stats.columns = ["Product Type", "Total Revenue", "Sales Volume"]
+        product_stats = product_stats.sort_values("Total Revenue", ascending=False)
+
+        with col1:
+            st.markdown("### 🏆 Top 3 Revenue Generators")
+            top3_revenue = product_stats.head(3)
+            for _, row in top3_revenue.iterrows():
+                pct = (row["Total Revenue"] / total_rev * 100) if total_rev else 0
+                st.metric(row["Product Type"], f"${row['Total Revenue']:,.0f}", f"{pct:.1f}% of total")
+
+            st.markdown("### 📊 Top 3 Volume Leaders")
+            top3_volume = product_stats.sort_values("Sales Volume", ascending=False).head(3)
+            for _, row in top3_volume.iterrows():
+                pct = (row["Sales Volume"] / total_sales * 100) if total_sales else 0
+                st.metric(row["Product Type"], f"{int(row['Sales Volume']):,} sales", f"{pct:.1f}% of volume")
+
+        with col2:
+            st.markdown("### ⚠️ Bottom 3 Revenue Generators")
+            bottom3_revenue = product_stats.tail(3).sort_values("Total Revenue", ascending=True)
+            for _, row in bottom3_revenue.iterrows():
+                pct = (row["Total Revenue"] / total_rev * 100) if total_rev else 0
+                st.metric(row["Product Type"], f"${row['Total Revenue']:,.0f}", f"{pct:.1f}% of total")
+
+            st.markdown("### 📉 Bottom 3 Volume Leaders")
+            bottom3_volume = product_stats.sort_values("Sales Volume", ascending=True).head(3)
+            for _, row in bottom3_volume.iterrows():
+                pct = (row["Sales Volume"] / total_sales * 100) if total_sales else 0
+                st.metric(row["Product Type"], f"{int(row['Sales Volume']):,} sales", f"{pct:.1f}% of volume")
+
+        st.markdown("---")
+        st.markdown('<div class="recommendation-box">', unsafe_allow_html=True)
+        st.markdown(
+            """
+            **📊 Business Takeaways:**
+            
+            The low discount rate combined with strong average transaction value supports premium positioning.
+            Top revenue generators show where demand is proven, but concentration can create dependency risk.
+            Bottom performers should be reviewed for margin, strategic relevance, and product portfolio fit.
+            """
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        # Revenue by Product Type Chart
+        st.markdown("---")
+        st.subheader("💰 Revenue Distribution by Product Type")
+
+        revenue_by_type = pm_df.groupby("Product Type")["Price (CAD)"].sum().reset_index()
+        revenue_by_type.columns = ["Product Type", "Revenue"]
+        revenue_by_type = revenue_by_type.sort_values("Revenue", ascending=True)
+
+        fig_revenue = px.bar(
+            revenue_by_type,
+            x="Revenue",
+            y="Product Type",
+            orientation="h",
+            title="Total Revenue by Product Type",
+            color="Revenue",
+            color_continuous_scale="Blues",
+        )
+        fig_revenue.update_layout(height=500, showlegend=False, xaxis_title="Revenue (CAD)", yaxis_title="Product Type")
+        fig_revenue.update_traces(texttemplate="$%{x:,.0f}", textposition="outside")
+        st.plotly_chart(fig_revenue, use_container_width=True)
+
+        # Volume Distribution Chart
+        st.markdown("---")
+        st.subheader("📊 Sales Volume Distribution")
+
+        volume_by_type = pm_df.groupby("Product Type").size().reset_index(name="Count")
+        volume_by_type = volume_by_type.sort_values("Count", ascending=True)
+
+        fig_volume = px.bar(
+            volume_by_type,
+            x="Count",
+            y="Product Type",
+            orientation="h",
+            title="Total Sales by Product Type",
+            color="Count",
+            color_continuous_scale="Greens",
+        )
+        fig_volume.update_layout(height=500, showlegend=False, xaxis_title="Number of Sales", yaxis_title="Product Type")
+        fig_volume.update_traces(texttemplate="%{x:,}", textposition="outside")
+        st.plotly_chart(fig_volume, use_container_width=True)
+
+    # =====================================================
+    # TAB 2: INTERACTIVE TREEMAP
+    # =====================================================
+    with pm_tabs[1]:
+        st.subheader("🗺️ Interactive Product Hierarchy")
+
+        st.markdown('<div class="insight-box">', unsafe_allow_html=True)
+        st.markdown(
+            """
+            This interactive treemap shows revenue flow from **Product Type → Grade → Species**.
+            Rectangle size = revenue. Click rectangles to zoom.
+            """
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        st.markdown("---")
+        st.subheader("🗺️ Revenue Treemap Visualization")
+
+        fig_treemap = px.treemap(
+            pm_df,
+            path=["Product Type", "Grade", "Species"],
+            values="Price (CAD)",
+            title="Product Mix Revenue Hierarchy (Click to Zoom)",
+            color="Price (CAD)",
+            color_continuous_scale="RdYlBu_r",
+            hover_data={"Price (CAD)": ":$,.0f"},
+        )
+        fig_treemap.update_layout(height=700, font=dict(size=14))
+        fig_treemap.update_traces(
+            textposition="middle center",
+            textfont_size=12,
+            marker=dict(line=dict(width=2, color="white")),
+        )
+        st.plotly_chart(fig_treemap, use_container_width=True)
+
+        st.markdown('<div class="insight-box">', unsafe_allow_html=True)
+        st.markdown(
+            """
+            **Key Insights:**
+            - Larger blocks = revenue concentration
+            - Grades show value sweet spots
+            - Species patterns become obvious when drilling down
+            """
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        st.markdown("---")
+        if st.checkbox("📊 View Complete Data Table", key="pm_treemap_data"):
+            hierarchy_data = pm_df.groupby(["Product Type", "Grade", "Species"]).agg(
+                **{
+                    "Total Revenue": ("Price (CAD)", "sum"),
+                    "Sales Count": ("Price (CAD)", "count"),
+                    "Avg Price": ("Price (CAD)", "mean"),
+                }
+            ).round(2)
+            hierarchy_data = hierarchy_data.sort_values("Total Revenue", ascending=False)
+            st.dataframe(hierarchy_data, use_container_width=True)
+
+    # =====================================================
+    # TAB 3: REVENUE ANALYSIS
+    # =====================================================
+    with pm_tabs[2]:
+        st.subheader("📈 Revenue Deep Dive")
+
+        # Revenue by Grade
+        st.subheader("💎 Revenue Distribution by Grade")
+        grade_revenue = (
+            pm_df.groupby("Grade")
+            .agg(Revenue=("Price (CAD)", "sum"), Sales=("Sale ID", "count"))
+            .reset_index()
+        )
+        grade_revenue["Percentage"] = (
+            (grade_revenue["Revenue"] / grade_revenue["Revenue"].sum() * 100).round(1)
+            if grade_revenue["Revenue"].sum() else 0
+        )
+        grade_revenue = grade_revenue.sort_values("Revenue", ascending=False)
+
+        fig_grade = px.bar(
+            grade_revenue,
+            x="Grade",
+            y="Revenue",
+            title="Total Revenue by Ammolite Grade",
+            color="Revenue",
+            color_continuous_scale="Viridis",
+            text="Percentage",
+        )
+        fig_grade.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
+        fig_grade.update_layout(height=500, xaxis_title="Grade", yaxis_title="Revenue (CAD)", showlegend=False)
+        st.plotly_chart(fig_grade, use_container_width=True)
+
+        # Insight box (safe if empty)
+        if len(grade_revenue) > 0:
+            top = grade_revenue.iloc[0]
+            st.markdown('<div class="insight-box">', unsafe_allow_html=True)
+            st.markdown(
+                f"""
+                Top grade by revenue is **{top['Grade']}** generating **${top['Revenue']:,.0f}**
+                (**{top['Percentage']:.1f}%** of total). This often signals the best quality-to-price sweet spot.
+                """
+            )
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        # Individual Product Type Breakdown
+        st.markdown("---")
+        st.subheader("📊 Individual Product Type Breakdowns")
+
+        for product_type in pm_df["Product Type"].dropna().unique():
+            product_df = pm_df[pm_df["Product Type"] == product_type].copy()
+            if product_df.empty:
+                continue
+
+            with st.expander(f"🔍 {product_type} Analysis"):
+                c1, c2, c3, c4 = st.columns(4)
+
+                p_rev = product_df["Price (CAD)"].sum()
+                p_sales = len(product_df)
+                p_avg = product_df["Price (CAD)"].mean() if p_sales else 0
+                p_disc = product_df["Discount (CAD)"].mean() if p_sales else 0
+                p_disc_pct = (p_disc / p_avg * 100) if p_avg else 0
+
+                with c1:
+                    st.metric("Revenue", f"${p_rev:,.0f}")
+                with c2:
+                    st.metric("Sales", f"{p_sales:,}")
+                with c3:
+                    st.metric("Avg Price", f"${p_avg:,.2f}")
+                with c4:
+                    st.metric("Avg Discount", f"{p_disc_pct:.2f}%")
+
+                # Revenue by Grade (for this product type)
+                grade_product = product_df.groupby("Grade")["Price (CAD)"].sum().reset_index()
+                grade_product.columns = ["Grade", "Revenue"]
+                grade_product = grade_product.sort_values("Revenue", ascending=False)
+
+                fig_pt_grade = px.bar(
+                    grade_product,
+                    x="Grade",
+                    y="Revenue",
+                    title=f"{product_type} • Revenue by Grade",
+                    color="Revenue",
+                    color_continuous_scale="Plasma",
+                )
+                fig_pt_grade.update_layout(height=420, showlegend=False, xaxis_title="Grade", yaxis_title="Revenue (CAD)")
+                st.plotly_chart(fig_pt_grade, use_container_width=True)
+
+                # Top Species
+                species_rev = product_df.groupby("Species")["Price (CAD)"].sum().reset_index()
+                species_rev.columns = ["Species", "Revenue"]
+                species_rev = species_rev.sort_values("Revenue", ascending=False).head(10)
+
+                fig_species = px.bar(
+                    species_rev.sort_values("Revenue", ascending=True),
+                    x="Revenue",
+                    y="Species",
+                    orientation="h",
+                    title=f"{product_type} • Top Species by Revenue",
+                    color="Revenue",
+                    color_continuous_scale="Cividis",
+                )
+                fig_species.update_layout(height=420, showlegend=False, xaxis_title="Revenue (CAD)", yaxis_title="Species")
+                st.plotly_chart(fig_species, use_container_width=True)
+
 
 # -----------------------------
 # TAB: Customer Segments (RFM added)
