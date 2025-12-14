@@ -2817,15 +2817,443 @@ with tabs[4]:
         insights_expander("Data", insights_md, why_md, recs_md)
         st.divider()
 # -----------------------------
-# TAB: Inventory Timing (separate tab)
+# TAB 6: Inventory Timing 
+# -----------------------------
+# ---Helpers--- #
+try:
+    from scipy.stats import norm
+except Exception:
+    norm = None
+
+def _ensure_month_and_ownership(df_in: pd.DataFrame) -> pd.DataFrame:
+    dfx = df_in.copy()
+    # Date + Month
+    if "Date" in dfx.columns:
+        dfx["Date"] = pd.to_datetime(dfx["Date"], errors="coerce")
+        dfx = dfx.dropna(subset=["Date"])
+        dfx["Month"] = dfx["Date"].dt.to_period("M").astype(str)
+    # Ownership mapping (if needed)
+    if "Ownership" not in dfx.columns and "Consignment? (Y/N)" in dfx.columns:
+        dfx["Ownership"] = dfx["Consignment? (Y/N)"].map({"Y": "Consigned", "N": "Owned"})
+    return dfx
+
+def compute_3mma_forecast_and_thresholds(monthly_cnt: pd.DataFrame, z_service: float, horizon_months: int = 3):
+    if monthly_cnt is None or monthly_cnt.empty:
+        return None
+
+    y = monthly_cnt["Sales_Count"].astype(float).values
+    y_series = pd.Series(y)
+
+    if len(y_series) >= 3:
+        ma3_hist = y_series.rolling(3, min_periods=3).mean()
+        forecast_next_val = float(y_series.tail(3).mean())
+    else:
+        ma3_hist = y_series.rolling(3, min_periods=1).mean()
+        forecast_next_val = float(y_series.mean()) if len(y_series) else 0.0
+
+    sigma_month = float(np.std(y, ddof=1)) if len(y) > 1 else 0.0
+    safety_1m = float(z_service * sigma_month)
+    optimal_1m = max(float(forecast_next_val + safety_1m), 0.0)
+
+    eval_mask = (~pd.isna(ma3_hist)) & (monthly_cnt["Sales_Count"] > 0)
+    if eval_mask.any():
+        actual = monthly_cnt.loc[eval_mask, "Sales_Count"].values
+        forecast = ma3_hist.loc[eval_mask].values
+        mape = np.mean(np.abs(actual - forecast) / actual)
+        acc = max(0.0, (1 - mape) * 100)
+    else:
+        acc = np.nan
+
+    return {
+        "forecast_next_val": forecast_next_val,
+        "ma3_hist": ma3_hist,
+        "sigma_month": sigma_month,
+        "safety_1m": safety_1m,
+        "optimal_1m": optimal_1m,
+        "forecast_accuracy_pct": acc
+    }
+
+def deviation_sales_vs_thresholds(monthly_cnt: pd.DataFrame, z_service: float):
+    if monthly_cnt is None or monthly_cnt.empty:
+        return None
+
+    out = compute_3mma_forecast_and_thresholds(monthly_cnt, z_service, horizon_months=3)
+    if out is None:
+        return None
+
+    safety_1m = int(round(out["safety_1m"]))
+    optimal_1m = int(round(out["optimal_1m"]))
+
+    y = monthly_cnt["Sales_Count"].astype(int).values
+
+    above_mask = y > optimal_1m
+    above_periods = int(above_mask.sum())
+    above_units_total = int((y[above_mask] - optimal_1m).sum())
+
+    below_mask = y < safety_1m
+    below_periods = int(below_mask.sum())
+    below_units_total = int((safety_1m - y[below_mask]).sum())
+
+    return {
+        "above_periods": above_periods,
+        "above_units_total": above_units_total,
+        "below_periods": below_periods,
+        "below_units_total": below_units_total,
+    }
+
+# -- inventory -- #
+def render_inventory_analysis_tab(df_in: pd.DataFrame):
+    st.markdown("### Inventory Analysis – Sales vs Forecast, Safety Stock & Optimal Level")
+
+    df = _ensure_month_and_ownership(df_in)
+
+    required_cols = ["Date", "Sale ID"]
+    missing = [c for c in required_cols if c not in df.columns]
+    if missing:
+        st.error(f"Missing required columns in dataset: {missing}")
+        return
+
+    # Parameters
+    HORIZON_MONTHS = 3
+    SERVICE_LEVEL = 0.90
+    if norm is None:
+        st.warning("scipy is not available; cannot compute Z from service level.")
+        return
+    Z_SERVICE = float(norm.ppf(SERVICE_LEVEL))
+
+    all_label = "All Product Types (Total Inventory)"
+    product_type_list = (
+        sorted(df["Product Type"].dropna().unique().tolist())
+        if "Product Type" in df.columns else []
+    )
+
+    scope_choice = st.selectbox(
+        "Scope of analysis:",
+        [all_label] + product_type_list,
+        index=0,
+        key=wkey("inv_scope")
+    )
+
+    if scope_choice == all_label:
+        df_scope = df.copy()
+        scope_title = "All Product Types"
+    else:
+        df_scope = df[df["Product Type"] == scope_choice].copy()
+        scope_title = f"Product Type: {scope_choice}"
+
+    monthly_cnt = (
+        df_scope.groupby("Month")["Sale ID"]
+                .count()
+                .reset_index(name="Sales_Count")
+    )
+
+    if monthly_cnt.empty:
+        st.info("No data available to compute inventory analysis with current filters.")
+        return
+
+    monthly_cnt["Month_dt"] = pd.to_datetime(monthly_cnt["Month"], format="%Y-%m", errors="coerce")
+    monthly_cnt = (
+        monthly_cnt.dropna(subset=["Month_dt"])
+                   .sort_values("Month_dt")
+                   .reset_index(drop=True)
+    )
+
+    if monthly_cnt.empty:
+        st.info("No valid months after parsing. Check the 'Date' column format.")
+        return
+
+    pack = compute_3mma_forecast_and_thresholds(monthly_cnt, Z_SERVICE, horizon_months=HORIZON_MONTHS)
+    if pack is None:
+        st.info("Unable to compute forecast/thresholds for the current scope.")
+        return
+
+    ma3_hist = pack["ma3_hist"]
+    forecast_next_val = float(pack["forecast_next_val"])
+    sigma_month = float(pack["sigma_month"])
+    safety_stock_1m = float(pack["safety_1m"])
+    optimal_stock_1m = float(pack["optimal_1m"])
+    forecast_accuracy_pct_scope = pack["forecast_accuracy_pct"]
+
+    safety_1m_int = int(round(safety_stock_1m))
+    optimal_1m_int = int(round(optimal_stock_1m))
+
+    # KPIs
+    total_units_sold = int(df["Sale ID"].count())
+
+    most_pt, most_pct = "N/A", 0.0
+    least_pt, least_pct = "N/A", 0.0
+    if "Product Type" in df.columns:
+        pt_counts = (
+            df.dropna(subset=["Product Type"])
+              .groupby("Product Type")["Sale ID"]
+              .count()
+              .sort_values(ascending=False)
+        )
+        if not pt_counts.empty and total_units_sold > 0:
+            most_pt = str(pt_counts.index[0])
+            most_pct = float(pt_counts.iloc[0] / total_units_sold * 100.0)
+            least_pt = str(pt_counts.index[-1])
+            least_pct = float(pt_counts.iloc[-1] / total_units_sold * 100.0)
+
+    forecast_acc_text = (
+        "N/A" if pd.isna(forecast_accuracy_pct_scope)
+        else f"{float(forecast_accuracy_pct_scope):.1f}%"
+    )
+
+    over_best = {"pt": "N/A", "periods": 0, "units": 0}
+    under_best = {"pt": "N/A", "periods": 0, "units": 0}
+
+    if "Product Type" in df.columns and product_type_list:
+        for pt in product_type_list:
+            g = df[df["Product Type"] == pt].copy()
+            mc = g.groupby("Month")["Sale ID"].count().reset_index(name="Sales_Count")
+            mc["Month_dt"] = pd.to_datetime(mc["Month"], format="%Y-%m", errors="coerce")
+            mc = mc.dropna(subset=["Month_dt"]).sort_values("Month_dt").reset_index(drop=True)
+            if mc.empty:
+                continue
+
+            dev = deviation_sales_vs_thresholds(mc, Z_SERVICE)
+            if dev is None:
+                continue
+
+            if (dev["above_periods"] > over_best["periods"]) or (
+                dev["above_periods"] == over_best["periods"] and dev["above_units_total"] > over_best["units"]
+            ):
+                over_best = {"pt": str(pt), "periods": dev["above_periods"], "units": dev["above_units_total"]}
+
+            if (dev["below_periods"] > under_best["periods"]) or (
+                dev["below_periods"] == under_best["periods"] and dev["below_units_total"] > under_best["units"]
+            ):
+                under_best = {"pt": str(pt), "periods": dev["below_periods"], "units": dev["below_units_total"]}
+
+    k1, k2, k3 = st.columns(3)
+    k4, k5, k6 = st.columns(3)
+
+    k1.metric("Units sold (total)", f"{total_units_sold:,}")
+    k2.metric("Most demanded Product Type", f"{most_pt}", delta=(f"+{most_pct:.1f}%" if most_pt != "N/A" else None))
+    k3.metric("Least demanded Product Type", f"{least_pt}", delta=(f"-{least_pct:.1f}%" if least_pt != "N/A" else None))
+    k4.metric("Forecast accuracy (current scope)", forecast_acc_text)
+    k5.metric(
+        "Most above Optimal (1M)",
+        f"{over_best['pt']}",
+        delta=(f"{over_best['periods']} months | {over_best['units']} units"
+               if over_best["pt"] != "N/A" and over_best["periods"] > 0 else None)
+    )
+    k6.metric(
+        "Most below Safety (1M)",
+        f"{under_best['pt']}",
+        delta=(f"{under_best['periods']} months | {under_best['units']} units"
+               if under_best["pt"] != "N/A" and under_best["periods"] > 0 else None)
+    )
+
+    st.markdown("---")
+
+    # Chart
+    last_month_dt = monthly_cnt["Month_dt"].max()
+    next_month = last_month_dt + pd.DateOffset(months=1)
+
+    ext_months = list(monthly_cnt["Month_dt"]) + [next_month]
+    actual_ext = list(monthly_cnt["Sales_Count"].astype(int)) + [None]
+    forecast_ext = list(ma3_hist) + [forecast_next_val]
+    forecast_ext_plot = [(None if pd.isna(v) else float(v)) for v in forecast_ext]
+    safety_ext = [safety_1m_int] * len(ext_months)
+    optimal_ext = [optimal_1m_int] * len(ext_months)
+
+    fig_inv = go.Figure()
+    fig_inv.add_trace(go.Scatter(x=ext_months, y=actual_ext, mode="lines+markers", name="Actual Sales (Monthly Items)"))
+    fig_inv.add_trace(go.Scatter(
+        x=ext_months, y=forecast_ext_plot, mode="lines+markers",
+        name="Forecast (3-Month Moving Average)", line=dict(dash="dash")
+    ))
+    fig_inv.add_trace(go.Scatter(
+        x=ext_months, y=safety_ext, mode="lines",
+        name="Safety Stock (1 month)", line=dict(dash="dot")
+    ))
+    fig_inv.add_trace(go.Scatter(
+        x=ext_months, y=optimal_ext, mode="lines+markers",
+        name="Optimal Stock (1 month)"
+    ))
+
+    fig_inv.update_layout(
+        xaxis_title="Month",
+        yaxis_title="Units",
+        title=f"Monthly Sales vs 3M MA Forecast, Safety (1M) & Optimal (1M) — {scope_title}",
+        height=550
+    )
+    st.plotly_chart(fig_inv, use_container_width=True)
+
+    with st.expander("Insights", expanded=False):
+        st.markdown("#### 1) Model used for Safety (minimum) and Optimal (maximum) levels")
+        st.markdown(
+            "- **Forecast (3MMA)** estimates expected demand for the next month.\n"
+            "- **Monthly volatility (σ)** is computed as the standard deviation of historical monthly sales.\n"
+            "- **Safety Stock (minimum threshold):** **Safety = Z × σ**\n"
+            "- **Optimal Stock (target / maximum):** **Optimal = Forecast + Safety**"
+        )
+
+        st.markdown("#### 2) How the 3MMA forecast was computed")
+        st.markdown(
+            "- For month *t*: **MA₃(t) = (Sales(t-2) + Sales(t-1) + Sales(t)) / 3**\n"
+            "- The **next-month forecast** is: **Forecast(next) = mean(last 3 observed months)**\n"
+            "- If fewer than 3 months exist, the model falls back to the mean of available months."
+        )
+
+        st.markdown("#### 3) How Z is computed (service level factor)")
+        st.markdown(
+            f"- Service level = **{SERVICE_LEVEL:.0%}**\n"
+            f"- Compute: **Z = Φ⁻¹(service level)** using the standard normal distribution.\n"
+            f"- Here: **Z ≈ {Z_SERVICE:.2f}**"
+        )
+
+        expected_units_horizon = float(forecast_next_val * HORIZON_MONTHS)
+        st.markdown("#### 4) Expected units for the projected horizon")
+        st.markdown(
+            f"**Scope selected:** `{scope_title}`  \n"
+            f"**Projected horizon:** `{HORIZON_MONTHS}` month(s)  \n\n"
+            f"**Expected units to be sold in the projected period:** **{int(round(expected_units_horizon))} units**"
+        )
+
+    
+    # TABLE: STOCK STATUS vs OPTIMAL (3M) + RESTOCK 1M + FORECAST NEXT 3
+    st.markdown("---")
+    st.subheader("Stock Status vs 3-Month Optimal Stock (with 1-Month Restock)")
+
+    H_TABLE = 3
+
+    forecast_3m_total = float(forecast_next_val * H_TABLE)
+    sigma_3m = sigma_month * np.sqrt(H_TABLE)
+    safety_3m = float(Z_SERVICE * sigma_3m)
+    optimal_3m = max(float(forecast_3m_total + safety_3m), 0.0)
+    optimal_3m_int = int(round(optimal_3m))
+
+    rows = []
+    product_type_name = "All Product Types" if scope_choice == all_label else scope_choice
+
+    stock = optimal_3m_int
+
+    for _, row_ in monthly_cnt.iterrows():
+        period_label = row_["Month_dt"].strftime("%Y-%m")
+        total_sales = int(row_["Sales_Count"])
+
+        stock = max(stock - total_sales, 0)
+        restock_to_opt_1m = max(optimal_1m_int - stock, 0)
+
+        rows.append({
+            "Product Type": product_type_name,
+            "Period": period_label,
+            "Total Sales (units)": total_sales,
+            "Stock Status (units)": stock,
+            "Re-stock to Optimal 1M (units)": restock_to_opt_1m,
+        })
+
+        stock += restock_to_opt_1m
+
+    forecast_next_val_int = int(round(forecast_next_val))
+
+    for k in range(1, H_TABLE + 1):
+        future_dt = monthly_cnt["Month_dt"].max() + pd.DateOffset(months=k)
+        period_label = future_dt.strftime("%Y-%m")
+        total_sales = forecast_next_val_int
+
+        stock = max(stock - total_sales, 0)
+        restock_to_opt_1m = max(optimal_1m_int - stock, 0)
+
+        rows.append({
+            "Product Type": product_type_name,
+            "Period": period_label,
+            "Total Sales (units)": total_sales,
+            "Stock Status (units)": stock,
+            "Re-stock to Optimal 1M (units)": restock_to_opt_1m,
+        })
+
+        stock += restock_to_opt_1m
+
+    table_df = pd.DataFrame(rows)
+
+   
+    attr_cols = ["Species", "Grade", "Finish", "Dominant Color", "Color Count (#)"]
+    df_attr = df_scope.copy()
+
+    if "Month" not in df_attr.columns:
+        df_attr["Month"] = pd.to_datetime(df_attr["Date"], errors="coerce").dt.to_period("M").astype(str)
+
+    df_attr["Month_dt"] = pd.to_datetime(df_attr["Month"], format="%Y-%m", errors="coerce")
+
+    for col in attr_cols:
+        if col not in df_attr.columns:
+            df_attr[col] = "N/A"
+        df_attr[col] = df_attr[col].fillna("N/A")
+
+    for col in attr_cols:
+        table_df[col] = ""
+
+    for i, row_ in table_df.iterrows():
+        period_dt = pd.to_datetime(row_["Period"], format="%Y-%m", errors="coerce")
+        df_prev = df_attr[df_attr["Month_dt"] < period_dt].dropna(subset=["Month_dt"])
+        if df_prev.empty:
+            continue
+
+        top_grp = (
+            df_prev.groupby(attr_cols)["Sale ID"]
+                  .count()
+                  .reset_index(name="Sales_Count")
+                  .sort_values("Sales_Count", ascending=False)
+                  .head(1)
+        )
+        if top_grp.empty:
+            continue
+
+        top_row = top_grp.iloc[0]
+        for col in attr_cols:
+            table_df.at[i, col] = top_row[col]
+
+    cols_show = [
+        "Product Type",
+        "Period",
+        "Total Sales (units)",
+        "Stock Status (units)",
+        "Re-stock to Optimal 1M (units)",
+    ] + attr_cols
+
+    st.dataframe(table_df[cols_show], use_container_width=True)
+
+    csv_data = table_df[cols_show].to_csv(index=False).encode("utf-8")
+    file_label = product_type_name.replace(" ", "_").lower()
+    st.download_button(
+        label="Download stock status table as CSV",
+        data=csv_data,
+        file_name=f"stock_status_{file_label}.csv",
+        mime="text/csv",
+    )
+
+# -----------------------------
+# Forecast + Timing sub-tabs)
 # -----------------------------
 with tab_timing:
-    st.subheader("Inventory Timing")
+    st.subheader("Inventory")
 
+    # 6 tabs 
+    tab0, tab1, tab2, tab3, tab4, tab5 = st.tabs(
+        ["Inventory Forecast", "Timing Curve (CDF)", "Monthly Volume", "Product Speed", "Insights", "Summary"]
+    )
+
+    # -----------------------------
+    # SubTab Inventory Forecast 
+    # -----------------------------
+    with tab0:
+        render_inventory_analysis_tab(f)  # uses the filtered df
+
+    # -----------------------------
+    # Prep data for Timing tabs (2-6)
+    # -----------------------------
     df_f = f.copy()
 
     # choose best date for shipment timing
-    ship_date_col = "Shipped Date" if ("Shipped Date" in df_f.columns and df_f["Shipped Date"].notna().any()) else "Date"
+    ship_date_col = (
+        "Shipped Date"
+        if ("Shipped Date" in df_f.columns and df_f["Shipped Date"].notna().any())
+        else "Date"
+    )
     df_f[ship_date_col] = pd.to_datetime(df_f[ship_date_col], errors="coerce")
     df_f["__month_dt"] = df_f[ship_date_col].dt.to_period("M").dt.to_timestamp()
 
@@ -2862,10 +3290,9 @@ with tab_timing:
     avg_monthly = float(monthly_series.mean()) if len(monthly_series) else 0.0
     peak_month = monthly_series.idxmax().strftime("%B %Y") if len(monthly_series) else "—"
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(
-        ["Timing Curve (CDF)", "Monthly Volume", "Product Speed", "Insights", "Summary"]
-    )
-
+    # -----------------------------
+    # SubTab Timing Curve (CDF)
+    # -----------------------------
     with tab1:
         st.subheader("📈 Shipment Timing Curve (CDF)")
         st.write(
@@ -2886,6 +3313,9 @@ with tab_timing:
             ax.grid(alpha=0.25)
             st.pyplot(fig, use_container_width=True)
 
+    # -----------------------------
+    # SubTab Monthly Volume
+    # -----------------------------
     with tab2:
         st.subheader("📅 Monthly Shipping Volume")
         if monthly_series.empty:
@@ -2898,6 +3328,9 @@ with tab_timing:
             ax2.grid(alpha=0.25, axis="y")
             st.pyplot(fig2, use_container_width=True)
 
+    # -----------------------------
+    # SubTab Product Speed
+    # -----------------------------
     with tab3:
         st.subheader("📊 Fast vs Slow Moving Products")
         if product_volume.empty:
@@ -2910,6 +3343,9 @@ with tab_timing:
             ax3.grid(alpha=0.25, axis="x")
             st.pyplot(fig3, use_container_width=True)
 
+    # -----------------------------
+    # SubTab Insights
+    # -----------------------------
     with tab4:
         st.subheader("💡 Key Insights")
 
@@ -2943,6 +3379,9 @@ with tab_timing:
             st.write("- Align procurement cycles with observed shipment timing.")
             st.write("- Consider adding *Received Date* data to enable true inventory aging metrics.")
 
+    # -----------------------------
+    # SubTab Summary
+    # -----------------------------
     with tab5:
         st.subheader("📄 Executive Summary")
         st.markdown(f"""
@@ -2954,260 +3393,9 @@ with tab_timing:
 
         This tab focuses on **inventory movement timing** for stocking, planning, and operational efficiency.
         """)
-
-# ============================
-# ✅ FIXED OWNERSHIP TAB (paste/replace your Ownership section with this)
-# Requires: tab_ownership, f, pkey(), wkey(), style_fig()
-# ============================
-with tab_ownership:
-    st.subheader("Ownership (Owned vs Consigned)")
-
-    own_df = f.copy()  # ALWAYS use the filtered dataframe
-
-    # ---------- Revenue metric (prefer Net Sales) ----------
-    revenue_col = "Net Sales" if "Net Sales" in own_df.columns else ("Price (CAD)" if "Price (CAD)" in own_df.columns else None)
-    if revenue_col is None:
-        st.error("Missing revenue column: need either `Net Sales` or `Price (CAD)`.")
-        st.stop()
-
-    own_df[revenue_col] = pd.to_numeric(own_df[revenue_col], errors="coerce").fillna(0)
-
-    # ---------- Ownership column ----------
-    if "Ownership" not in own_df.columns:
-        if "Consignment? (Y/N)" in own_df.columns:
-            tmp = own_df["Consignment? (Y/N)"].astype(str).str.strip().str.upper()
-            own_df["Ownership"] = np.where(tmp.eq("Y"), "Consigned", "Owned")
-        else:
-            own_df["Ownership"] = "Owned"
-
-    # Normalize labels
-    own_df["Ownership"] = own_df["Ownership"].astype(str).str.strip()
-    own_df.loc[~own_df["Ownership"].isin(["Owned", "Consigned"]), "Ownership"] = "Owned"
-
-    # ---------- Date + Month ----------
-    if "Date" not in own_df.columns:
-        st.error("Missing column: `Date` (needed for monthly trends).")
-        st.stop()
-
-    own_df["Date"] = pd.to_datetime(own_df["Date"], errors="coerce")
-    own_df = own_df.dropna(subset=["Date"]).copy()
-    own_df["Month_dt"] = own_df["Date"].dt.to_period("M").dt.to_timestamp()
-
-    # ---------- Units / sales count proxy ----------
-    if "OrderCount" in own_df.columns:
-        own_df["Units"] = pd.to_numeric(own_df["OrderCount"], errors="coerce").fillna(1)
-    elif "Sale ID" in own_df.columns:
-        own_df["Units"] = 1
-    else:
-        own_df["Units"] = 1
-
-    # ---------- Monthly aggregates ----------
-    m_rev = (
-        own_df.groupby(["Month_dt", "Ownership"], as_index=False)[revenue_col]
-        .sum()
-        .pivot(index="Month_dt", columns="Ownership", values=revenue_col)
-        .fillna(0.0)
-    )
-    for c in ["Owned", "Consigned"]:
-        if c not in m_rev.columns:
-            m_rev[c] = 0.0
-    m_rev["Total"] = m_rev["Owned"] + m_rev["Consigned"]
-    m_rev = m_rev.sort_index()
-
-    m_cnt = (
-        own_df.groupby(["Month_dt", "Ownership"], as_index=False)["Units"]
-        .sum()
-        .pivot(index="Month_dt", columns="Ownership", values="Units")
-        .fillna(0.0)
-    )
-    for c in ["Owned", "Consigned"]:
-        if c not in m_cnt.columns:
-            m_cnt[c] = 0.0
-    m_cnt["Total"] = m_cnt["Owned"] + m_cnt["Consigned"]
-    m_cnt = m_cnt.sort_index()
-
-    # ============================
-    # KPIs
-    # ============================
-    total_rev = float(own_df[revenue_col].sum())
-    by_own = own_df.groupby("Ownership")[revenue_col].sum().to_dict()
-    owned_rev = float(by_own.get("Owned", 0.0))
-    cons_rev = float(by_own.get("Consigned", 0.0))
-    denom = owned_rev + cons_rev
-    owned_pct = (owned_rev / denom * 100) if denom else 0.0
-    cons_pct = (cons_rev / denom * 100) if denom else 0.0
-
-    growth = m_rev["Total"].pct_change().dropna()
-    avg_mom_growth = float(growth.mean() * 100) if not growth.empty else 0.0
-
-    # ROI advantage = revenue per unit (Owned vs Consigned)
-    roi_tbl = (
-        own_df.groupby("Ownership", as_index=False)
-        .agg(Units=("Units", "sum"), Revenue=(revenue_col, "sum"))
-    )
-    roi_tbl = roi_tbl[roi_tbl["Units"] > 0].copy()
-    if not roi_tbl.empty:
-        roi_tbl["Rev_per_Unit"] = roi_tbl["Revenue"] / roi_tbl["Units"]
-
-    k1, k2, k3, k4, k5 = st.columns(5)
-    k1.metric(f"Total {revenue_col}", f"${total_rev:,.0f}")
-    k2.metric("Owned Revenue %", f"{owned_pct:.1f}%")
-    k3.metric("Consigned Revenue %", f"{cons_pct:.1f}%")
-    k4.metric("Avg MoM Growth (Total)", f"{avg_mom_growth:.1f}%")
-
-    if len(roi_tbl) >= 2:
-        best = roi_tbl.loc[roi_tbl["Rev_per_Unit"].idxmax()]
-        worst = roi_tbl.loc[roi_tbl["Rev_per_Unit"].idxmin()]
-        if float(worst["Rev_per_Unit"]) > 0:
-            adv = (float(best["Rev_per_Unit"]) / float(worst["Rev_per_Unit"]) - 1) * 100
-            k5.metric("Commercial ROI Advantage", f"{adv:,.0f}%", delta=f"Best: {best['Ownership']}")
-        else:
-            k5.metric("Commercial ROI Advantage", "∞", delta=f"Best: {best['Ownership']}")
-    else:
-        k5.metric("Commercial ROI Advantage", "—")
-
-    st.markdown("---")
-
-    # ============================
-    # View toggle + chart + forecast
-    # ============================
-    view_option = st.radio(
-        "View:",
-        ["Revenue (monthly)", "Sales Count (monthly)"],
-        horizontal=True,
-        key=wkey("own_view"),
-    )
-
-    if view_option == "Revenue (monthly)":
-        base = m_rev.copy()
-        y_title = f"{revenue_col} (CAD)"
-        name_owned = "Owned Revenue"
-        name_cons = "Consigned Revenue"
-    else:
-        base = m_cnt.copy()
-        y_title = "Units / Sales Count"
-        name_owned = "Owned Units"
-        name_cons = "Consigned Units"
-
-    base = base.reset_index().rename(columns={"Month_dt": "Month"})
-
-    # 3-month MA forecast (adds 1 next month point)
-    if len(base) >= 3:
-        last_month = pd.to_datetime(base["Month"].max())
-        next_month = last_month + pd.DateOffset(months=1)
-
-        owned_ma = base["Owned"].rolling(3, min_periods=3).mean()
-        cons_ma = base["Consigned"].rolling(3, min_periods=3).mean()
-
-        owned_next = float(base["Owned"].tail(3).mean())
-        cons_next = float(base["Consigned"].tail(3).mean())
-
-        x_fc = pd.concat([base["Month"], pd.Series([next_month])], ignore_index=True)
-        owned_fc = pd.concat([owned_ma, pd.Series([owned_next])], ignore_index=True)
-        cons_fc = pd.concat([cons_ma, pd.Series([cons_next])], ignore_index=True)
-    else:
-        x_fc = base["Month"]
-        owned_fc = pd.Series([np.nan] * len(base))
-        cons_fc = pd.Series([np.nan] * len(base))
-
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=base["Month"], y=base["Owned"], mode="lines+markers", name=name_owned))
-    fig.add_trace(go.Scatter(x=base["Month"], y=base["Consigned"], mode="lines+markers", name=name_cons))
-    fig.add_trace(go.Scatter(x=x_fc, y=owned_fc, mode="lines+markers", name=f"{name_owned} – Forecast (3M MA)", line=dict(dash="dash")))
-    fig.add_trace(go.Scatter(x=x_fc, y=cons_fc, mode="lines+markers", name=f"{name_cons} – Forecast (3M MA)", line=dict(dash="dash")))
-    fig.update_layout(title="Monthly Trend (Owned vs Consigned)", xaxis_title="Month", yaxis_title=y_title)
-    fig = style_fig(fig, height=460)
-
-    left, right = st.columns([2, 1])
-    with left:
-        st.plotly_chart(fig, use_container_width=True, key=pkey("own_trend"))
-
-    with right:
-        st.markdown("#### Next-month units forecast (by Product Type × Grade × Ownership)")
-        if view_option != "Sales Count (monthly)":
-            st.info("Switch to **Sales Count (monthly)** to see the units forecast table.")
-        elif "Product Type" not in own_df.columns or "Grade" not in own_df.columns:
-            st.info("Need `Product Type` and `Grade` columns for this breakdown.")
-        else:
-            pt_list = sorted([x for x in own_df["Product Type"].dropna().astype(str).unique().tolist() if x.strip() != ""])
-            if not pt_list:
-                st.info("No Product Type values available under current filters.")
-            else:
-                sel_pt = st.selectbox("Product Type", pt_list, key=wkey("own_pt"))
-
-                sub = own_df[own_df["Product Type"].astype(str) == str(sel_pt)].copy()
-                if sub["Month_dt"].nunique() < 3:
-                    st.info("Not enough months (need ≥ 3) for a 3-month moving-average forecast.")
-                else:
-                    last3 = sorted(sub["Month_dt"].dropna().unique())[-3:]
-                    sub3 = sub[sub["Month_dt"].isin(last3)].copy()
-
-                    fc_tbl = (
-                        sub3.groupby(["Ownership", "Grade"], as_index=False)
-                        .agg(Forecast_Units=("Units", "mean"))
-                    )
-                    fc_tbl["Forecast_Units"] = fc_tbl["Forecast_Units"].round().astype(int)
-                    fc_tbl = fc_tbl.sort_values(["Ownership", "Forecast_Units"], ascending=[True, False])
-
-                    totals = fc_tbl.groupby("Ownership", as_index=False)["Forecast_Units"].sum().rename(columns={"Forecast_Units": "Total Forecast Units"})
-                    st.dataframe(totals, hide_index=True, use_container_width=True)
-
-                    st.markdown("**Detail (Ownership × Grade)**")
-                    st.dataframe(fc_tbl, hide_index=True, use_container_width=True)
-
-    with st.expander("Insights: Forecast model (Next Month)", expanded=False):
-        st.markdown(
-            """
-- Forecast uses a **3-month moving average** on **units/sales count**.
-- It’s a stable baseline for planning, but it **won’t capture seasonality** or sudden spikes.
-- Best used for **inventory & staffing** planning, then refined with seasonality later.
-"""
-        )
-
-    st.markdown("---")
-
-    # ============================
-    # MoM % change table (Product Type × Ownership)
-    # ============================
-    st.subheader("Month-over-Month % Change (Product Type × Ownership)")
-
-    metric_choice = st.radio(
-        "Metric:",
-        ["Sales Count", "Revenue"],
-        horizontal=True,
-        key=wkey("own_mom_metric"),
-    )
-
-    mom_df = own_df.dropna(subset=["Product Type"]).copy()
-    mom_df["Product Type"] = mom_df["Product Type"].fillna("Unknown").astype(str)
-
-    if mom_df["Month_dt"].nunique() < 2:
-        st.info("Not enough monthly data to compute month-over-month change.")
-    else:
-        if metric_choice == "Sales Count":
-            agg = mom_df.groupby(["Product Type", "Ownership", "Month_dt"], as_index=False)["Units"].sum().rename(columns={"Units": "Metric_Value"})
-        else:
-            agg = mom_df.groupby(["Product Type", "Ownership", "Month_dt"], as_index=False)[revenue_col].sum().rename(columns={revenue_col: "Metric_Value"})
-
-        pv = agg.pivot_table(index=["Product Type", "Ownership"], columns="Month_dt", values="Metric_Value", aggfunc="sum").fillna(0.0)
-        pv = pv.reindex(sorted(pv.columns), axis=1)
-
-        pct = pv.pct_change(axis=1) * 100
-        pct = pct.replace([np.inf, -np.inf], np.nan).round(1)
-
-        def fmt_pct(v):
-            return "—" if pd.isna(v) else f"{v:+.1f}%"
-
-        st.dataframe(pct.style.format(fmt_pct), use_container_width=True)
-
-        st.download_button(
-            "Download MoM % change (CSV)",
-            data=pct.reset_index().to_csv(index=False).encode("utf-8"),
-            file_name=f"ownership_mom_pct_{metric_choice.lower().replace(' ', '_')}.csv",
-            mime="text/csv",
-            key=wkey("own_mom_dl"),
-        )
-
+# -----------------------------
+# End of TAB 6: Inventory Timing 
+# -----------------------------
 # -----------------------------
 # TAB: Seasonality (upgrade)
 # -----------------------------
