@@ -2270,7 +2270,7 @@ with tab_geo:
     # - Renamed: Time -> Shipping Lag
     # - Removed: Data
     # -----------------------------
-    tabs = st.tabs(["World Map", "Geography × Channels", "Shipping Lag", "Stats"])
+    tabs = st.tabs(["World Map", "Geography × Channels", "Shipping Lag"])
 
     # ======================
     # TAB 0: World Map
