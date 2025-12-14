@@ -2148,7 +2148,7 @@ with tab_segments:
             key="dl_segments",
         )
 
- -----------------------------
+# -----------------------------
 # TAB: Geography & Channels (Price-Drivers style layout)
 # -----------------------------
 with tab_geo:
