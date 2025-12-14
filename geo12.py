@@ -2167,10 +2167,16 @@ with tab_geo:
     metric = metric_col
     metric_name = metric_label if "metric_label" in globals() else metric
 
+    # ---- make sure metric exists ----
+    if metric not in df.columns:
+        df[metric] = 0.0
+    df[metric] = pd.to_numeric(df[metric], errors="coerce").fillna(0.0)
+
     # ---- make sure core cols exist ----
     for col in ["Country", "Channel", "City"]:
         if col not in df.columns:
             df[col] = "Unknown"
+        df[col] = df[col].astype(str).fillna("Unknown")
 
     # ---- Month setup (prefer existing Month; else derive from Date) ----
     if "Month" in df.columns:
@@ -2246,6 +2252,53 @@ with tab_geo:
             st.markdown(f"\n**Why it helps:**\n{why_md if why_md.strip() else '-'}")
             st.markdown(f"\n**Recommendations:**\n{recs_md if recs_md.strip() else '-'}")
 
+    # -----------------------------
+    # Dynamic Insights helpers
+    # -----------------------------
+    def _is_money_metric(name: str, col: str) -> bool:
+        s = f"{name} {col}".lower()
+        money_words = ["sales", "revenue", "net", "gross", "amount", "cad", "$", "value"]
+        return any(w in s for w in money_words)
+
+    METRIC_IS_MONEY = _is_money_metric(metric_name, metric)
+
+    def fmt_metric(x):
+        if x is None or (isinstance(x, float) and not np.isfinite(x)):
+            return "—"
+        try:
+            v = float(x)
+        except Exception:
+            return "—"
+        if METRIC_IS_MONEY:
+            return f"${v:,.0f} CAD"
+        return f"{int(round(v)):,}"
+
+    def fmt_pct(p):
+        if p is None or (isinstance(p, float) and not np.isfinite(p)):
+            return "—"
+        return f"{p*100:.1f}%"
+
+    def share_top_k(agg_df, k=3):
+        if agg_df is None or agg_df.empty or "value" not in agg_df.columns:
+            return np.nan
+        total = float(agg_df["value"].sum())
+        if total <= 0:
+            return np.nan
+        topk = float(agg_df.sort_values("value", ascending=False)["value"].head(k).sum())
+        return topk / total
+
+    def safe_first_share(series: pd.Series):
+        if series is None or len(series) == 0:
+            return np.nan
+        total = float(series.sum())
+        if total <= 0:
+            return np.nan
+        return float(series.iloc[0]) / total
+
+    def bullet(lines):
+        lines = [l for l in lines if l and str(l).strip()]
+        return "\n".join([f"- {l}" for l in lines]) if lines else "- —"
+
     # ---- aggregations ----
     country_totals = df.groupby("Country")[metric].sum().sort_values(ascending=False)
     channel_totals = df.groupby("Channel")[metric].sum().sort_values(ascending=False)
@@ -2276,7 +2329,7 @@ with tab_geo:
     # TAB 0: World Map
     # ======================
     with tabs[0]:
-        st.subheader(f"World map - {metric_name} ($ CAD)")
+        st.subheader(f"World map - {metric_name} ($ CAD)" if METRIC_IS_MONEY else f"World map - {metric_name}")
 
         agg = country_totals.reset_index().rename(columns={metric: "value"})
         total_val = float(agg["value"].sum()) if not agg.empty else 0.0
@@ -2296,6 +2349,8 @@ with tab_geo:
             )
             fig.update_traces(
                 hovertemplate="<b>%{location}</b><br>Value: %{z:$,.0f} CAD<br>Share: %{customdata[0]:.1%}<extra></extra>"
+                if METRIC_IS_MONEY
+                else "<b>%{location}</b><br>Value: %{z:,.0f}<br>Share: %{customdata[0]:.1%}<extra></extra>"
             )
             fig = fig_tight(fig, height=520)
             st.plotly_chart(fig, use_container_width=True, key=pkey("geo_world"))
@@ -2306,14 +2361,44 @@ with tab_geo:
             top_tbl = rank_df(top_tbl)
             st.dataframe(top_tbl.set_index("#")[["Country", "value", "share"]], use_container_width=True)
 
-        insights_md = "- Revenue/value is concentrated in a few countries (darker areas)."
-        why_md = "Maps help you see concentration instantly and identify which markets deserve priority."
-        recs_md = "\n".join([
-            "- Focus spend + inventory on the top markets first.",
-            "- Expand to next-tier markets using the best-performing channel patterns from the heatmap tab."
-        ])
+        # ---- Dynamic insights (World Map) ----
+        n_countries = int(agg["Country"].nunique()) if not agg.empty else 0
+        top1_share = share_top_k(agg, k=1)
+        top3_share = share_top_k(agg, k=3)
+        top5_share = share_top_k(agg, k=5)
+        top_channel_share = safe_first_share(channel_totals)
 
-        insights_expander("World Map", insights_md, why_md, recs_md)
+        ins_lines = [
+            f"Countries in view: **{n_countries}**.",
+            (f"Top market: **{top_country}** ({fmt_pct(top1_share)} of total)." if np.isfinite(top1_share) else ""),
+            (f"Top 3 markets contribute **{fmt_pct(top3_share)}** of total." if np.isfinite(top3_share) else ""),
+            (f"Top 5 markets contribute **{fmt_pct(top5_share)}** of total." if np.isfinite(top5_share) else ""),
+            (f"Top channel overall: **{top_channel}** ({fmt_pct(top_channel_share)} of total)." if np.isfinite(top_channel_share) else ""),
+            (f"Consignment rate: **{cons_rate:.1f}%**." if np.isfinite(cons_rate) else ""),
+        ]
+        why_lines = [
+            "Shows where demand/value is concentrated so you can prioritize markets fast.",
+            "Makes it easy to spot new/under-served regions worth testing.",
+        ]
+        recs = []
+        if np.isfinite(top1_share) and top1_share >= 0.50:
+            recs.append(f"High concentration in **{top_country}** → reduce risk by growing the next 2–3 markets.")
+        elif np.isfinite(top3_share) and top3_share >= 0.75:
+            recs.append("Strong top-3 concentration → focus inventory + marketing there, but run small tests elsewhere.")
+
+        if np.isfinite(top_channel_share) and top_channel_share >= 0.60:
+            recs.append(f"Heavy channel dependence on **{top_channel}** → protect performance (backup channel plan).")
+
+        if np.isfinite(cons_rate) and cons_rate >= 50:
+            recs.append("Consignment is a big share → track cash timing + returns separately (avoid mixing with standard sales).")
+
+        if not recs:
+            recs = [
+                "Focus spend + inventory on top markets first.",
+                "Expand to next-tier markets using the best-performing channel patterns from the heatmap tab.",
+            ]
+
+        insights_expander("World Map", bullet(ins_lines), bullet(why_lines), bullet(recs))
         st.divider()
 
     # ======================
@@ -2329,7 +2414,11 @@ with tab_geo:
             top_c = country_totals.head(top_n).reset_index().rename(columns={metric: "value"})
             fig1 = px.bar(top_c, x="Country", y="value", title=f"Top {top_n} Countries ({metric_name})")
             fig1.update_layout(xaxis={"categoryorder": "total descending"})
-            fig1.update_traces(hovertemplate="<b>%{x}</b><br>Value: %{y:$,.0f} CAD<extra></extra>")
+            fig1.update_traces(
+                hovertemplate="<b>%{x}</b><br>Value: %{y:$,.0f} CAD<extra></extra>"
+                if METRIC_IS_MONEY
+                else "<b>%{x}</b><br>Value: %{y:,.0f}<extra></extra>"
+            )
             fig1 = fig_tight(fig1, height=460)
             st.plotly_chart(fig1, use_container_width=True, key=pkey("geo_top_c"))
             download_html(fig1, "02_top_countries.html")
@@ -2337,9 +2426,13 @@ with tab_geo:
         with colB:
             st.subheader(f"{metric_name} by channel")
             ch = channel_totals.reset_index().rename(columns={metric: "value"})
-            fig2 = px.bar(ch, x="Channel", y="value", title=f"{metric_name} by Channel ($ CAD)")
+            fig2 = px.bar(ch, x="Channel", y="value", title=f"{metric_name} by Channel")
             fig2.update_layout(xaxis={"categoryorder": "total descending"})
-            fig2.update_traces(hovertemplate="<b>%{x}</b><br>Value: %{y:$,.0f} CAD<extra></extra>")
+            fig2.update_traces(
+                hovertemplate="<b>%{x}</b><br>Value: %{y:$,.0f} CAD<extra></extra>"
+                if METRIC_IS_MONEY
+                else "<b>%{x}</b><br>Value: %{y:,.0f}<extra></extra>"
+            )
             fig2 = fig_tight(fig2, height=460)
             st.plotly_chart(fig2, use_container_width=True, key=pkey("geo_ch_bar"))
             download_html(fig2, "03_channel_bar.html")
@@ -2352,46 +2445,113 @@ with tab_geo:
         if pv.empty:
             st.info("Not enough data for the heatmap in current filters.")
         else:
-            fig3 = heatmap_from_pivot(pv, f"Heatmap: {metric_name} ($ CAD)", "$ CAD")
+            unit = "$ CAD" if METRIC_IS_MONEY else "value"
+            fig3 = heatmap_from_pivot(pv, f"Heatmap: {metric_name} ({unit})", unit)
             st.plotly_chart(fig3, use_container_width=True, key=pkey("geo_hm"))
             download_html(fig3, "04_country_channel_heatmap.html")
 
-        # REMOVED: "Channel mix share by country (Top countries)"
+        # ---- Dynamic insights (Geography × Channels) ----
+        total_metric_all = float(df[metric].sum()) if metric in df.columns else np.nan
+        top_n_share = (float(country_totals.head(top_n).sum()) / total_metric_all) if np.isfinite(total_metric_all) and total_metric_all > 0 else np.nan
 
-        insights_md = "\n".join([
-            "- A small group of countries generates most of the total value.",
-            "- Some channels clearly drive more value than others.",
-            "- Best channel differs by country (heatmap hotspots).",
-        ])
-        why_md = "This is the fastest way to choose a country + channel strategy without guessing."
-        recs_md = "\n".join([
-            "- Treat smaller countries as experiments; scale only those with repeatable traction.",
-            "- Put your best products + marketing behind the top channel(s).",
-            "- Pick 1–2 winning channels per top country and build a playbook around them.",
-            "- Don’t force one global channel strategy—optimize per market.",
-        ])
+        hotspot = None
+        if not pv.empty:
+            stack = pv.stack()
+            if len(stack) > 0:
+                (hc, hch) = stack.idxmax()
+                hotspot = (hc, hch, float(stack.max()))
 
-        insights_expander("Geography × Channels", insights_md, why_md, recs_md)
+        best_channels = []
+        if not pv.empty:
+            top3_countries = country_totals.head(min(3, len(country_totals))).index.tolist()
+            for c in top3_countries:
+                if c in pv.index:
+                    best_ch = pv.loc[c].idxmax()
+                    best_val = float(pv.loc[c].max())
+                    best_channels.append(f"**{c}** → best channel: **{best_ch}** ({fmt_metric(best_val)}).")
+
+        ins_lines = [
+            (f"Top {top_n} countries contribute **{fmt_pct(top_n_share)}** of total." if np.isfinite(top_n_share) else ""),
+            (f"Top channel overall: **{top_channel}** ({fmt_pct(safe_first_share(channel_totals))} of total)." if len(channel_totals) else ""),
+        ]
+        if hotspot is not None:
+            ins_lines.append(f"Biggest hotspot: **{hotspot[0]} × {hotspot[1]}** ({fmt_metric(hotspot[2])}).")
+        ins_lines += best_channels
+
+        why_lines = [
+            "Shows which countries and channels drive results, and where each market behaves differently.",
+            "Heatmap reveals the best country+channel combinations to scale.",
+        ]
+
+        recs = []
+        if np.isfinite(top_n_share) and top_n_share >= 0.80:
+            recs.append(f"Most results come from the top {top_n} countries → protect those markets (stock + campaigns).")
+
+        ch_share = safe_first_share(channel_totals)
+        if np.isfinite(ch_share) and ch_share >= 0.60:
+            recs.append(f"Results are heavily driven by **{top_channel}** → diversify tests into the #2 channel to reduce risk.")
+
+        if hotspot is not None and np.isfinite(total_metric_all) and total_metric_all > 0:
+            hotspot_share = hotspot[2] / total_metric_all
+            if hotspot_share >= 0.25:
+                recs.append(f"One hotspot is huge ({fmt_pct(hotspot_share)}) → build a repeatable playbook for that combo.")
+
+        if not recs:
+            recs = [
+                "Treat smaller countries as experiments; scale only those with repeatable traction.",
+                "Pick 1–2 winning channels per top country and build a playbook around them.",
+                "Don’t force one global channel strategy—optimize per market.",
+            ]
+
+        insights_expander("Geography × Channels", bullet(ins_lines), bullet(why_lines), bullet(recs))
         st.divider()
 
     # ======================
-    # TAB 2: Shipping Lag  (RENAMED from Time, and time-trends removed)
+    # TAB 2: Shipping Lag
     # ======================
     with tabs[2]:
         st.subheader("Shipping lag")
 
         if lag_col is None or lag_col not in df.columns:
             st.info("No shipping lag available (need Days to Ship or Date + Shipped Date).")
+
+            insights_md = bullet(["No shipping lag column available in this file."])
+            why_md = bullet([
+                "Helps identify where fulfillment delays occur so operations fixes are targeted.",
+                "Prevents guessing by showing delay hotspots alongside volume."
+            ])
+            recs_md = bullet([
+                "Add **Days to Ship** or **Date + Shipped Date** to enable lag insights.",
+                "Standardize date formats and ensure shipped dates are after order dates."
+            ])
+            insights_expander("Shipping Lag", insights_md, why_md, recs_md)
+            st.divider()
+
         else:
             clean_neg = st.toggle("Treat negative lag rows as missing", value=True, key="lag_clean_neg")
 
             lag_df = df.dropna(subset=[lag_col]).copy()
             lag_df["Ship Lag (days)"] = pd.to_numeric(lag_df[lag_col], errors="coerce")
+            lag_df = lag_df.dropna(subset=["Ship Lag (days)"])
+
             if clean_neg:
                 lag_df = lag_df[lag_df["Ship Lag (days)"] >= 0]
 
             if lag_df.empty:
                 st.info("No usable shipping lag values after filters.")
+
+                insights_md = bullet(["No usable shipping lag values after cleaning/filters."])
+                why_md = bullet([
+                    "Highlights where fulfillment delays cluster so ops fixes happen where they matter most.",
+                    "Prevents optimizing low-impact areas."
+                ])
+                recs_md = bullet([
+                    "Check your lag/date columns for blanks or invalid values.",
+                    "If you derive lag from dates, confirm **Date** and **Shipped Date** are parsed correctly."
+                ])
+                insights_expander("Shipping Lag", insights_md, why_md, recs_md)
+                st.divider()
+
             else:
                 col1, col2 = st.columns(2)
 
@@ -2466,19 +2626,48 @@ with tab_geo:
                         st.plotly_chart(fig3, use_container_width=True, key=pkey("lag_hm"))
                         download_html(fig3, "08_ship_lag_heatmap_country_city.html")
 
-        insights_md = "\n".join([
-            "- Shipping lag views show where delays cluster by country/city and where to fix first.",
-            f"- Negative lag rows detected: **{neg_lag_rows}** (treat as data issue)." if neg_lag_rows > 0 else "- No negative lag rows detected (or lag not available).",
-        ])
-        why_md = "This helps ops performance by showing where fulfillment delays are worst and where volume makes it worth fixing."
-        recs_md = "\n".join([
-            "- Fix the biggest delay hotspots first (high lag + meaningful volume).",
-            "- Set country-level SLAs and monitor trend after changes.",
-            "- Clean negative lag rows so lag KPIs are reliable.",
-        ])
+                # ---- Dynamic insights (Shipping Lag) ----
+                mean_lag = float(lag_df["Ship Lag (days)"].mean())
+                med_lag = float(lag_df["Ship Lag (days)"].median())
+                p90_lag = float(lag_df["Ship Lag (days)"].quantile(0.90))
 
-        insights_expander("Shipping Lag", insights_md, why_md, recs_md)
-        st.divider()
+                lag_ins = [
+                    f"Avg lag: **{mean_lag:.1f} days** (median **{med_lag:.1f}**, p90 **{p90_lag:.1f}**).",
+                    (f"Negative lag rows detected: **{neg_lag_rows}** (data issue)." if neg_lag_rows > 0 else "No negative lag rows detected (or already cleaned)."),
+                ]
+
+                # worst country by avg lag (min sample size)
+                order_col = "Sale ID" if "Sale ID" in lag_df.columns else metric
+                by_cty = (
+                    lag_df.groupby("Country")
+                    .agg(orders=(order_col, "count"), avg_lag=("Ship Lag (days)", "mean"), total=(metric, "sum"))
+                    .reset_index()
+                )
+                by_cty = by_cty[by_cty["orders"] >= 5].sort_values("avg_lag", ascending=False)
+                if not by_cty.empty:
+                    wc = by_cty.iloc[0]
+                    lag_ins.append(f"Worst avg lag (min 5 orders): **{wc['Country']}** at **{wc['avg_lag']:.1f} days**.")
+
+                lag_why = [
+                    "Highlights where fulfillment delays cluster so ops fixes happen where they matter most.",
+                    "Combines lag with volume so you don’t waste time optimizing low-impact areas.",
+                ]
+
+                lag_recs = []
+                if p90_lag >= 14:
+                    lag_recs.append("p90 lag is high (≥14 days) → prioritize fixes for delayed lanes first (carrier / warehouse / cutoff times).")
+                if mean_lag >= 10:
+                    lag_recs.append("Average lag is high (≥10 days) → review fulfillment workflow and set tighter SLAs.")
+                if neg_lag_rows > 0:
+                    lag_recs.append("Clean or exclude negative lag rows so lag KPIs remain trustworthy.")
+                lag_recs += [
+                    "Fix the biggest delay hotspots first (high lag + meaningful volume).",
+                    "Track lag monthly by country/city to confirm improvements.",
+                ]
+
+                insights_expander("Shipping Lag", bullet(lag_ins), bullet(lag_why), bullet(lag_recs))
+                st.divider()
+
 
 # -----------------------------
 # TAB 6: Inventory Timing 
