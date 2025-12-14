@@ -4860,7 +4860,7 @@ with tab_compliance:
 """
         render_dir_expander_metrics("Chart 7", definitions_md, metrics, recs_md)
 # ======================
-# TAB: Stats (MAIN TAB) — dynamic insights + recommendations (updates with uploaded file)
+# TAB: Stats (MAIN TAB) — same visuals, dynamic insights/recs
 # ======================
 with tab_stats:
     st.subheader("Stats")
@@ -4871,94 +4871,30 @@ with tab_stats:
     metric = metric_col
     metric_name = metric_label if "metric_label" in globals() else metric
 
-    # ---- helpers (define only if missing) ----
-    if "pkey" not in globals():
-        from itertools import count
-        _plot_counter = count()
-        def pkey(prefix="plot"):
-            return f"{prefix}_{next(_plot_counter)}"
+    if metric not in df.columns:
+        st.error(f"Metric column '{metric}' not found in the uploaded file.")
+        st.stop()
 
-    if "rank_df" not in globals():
-        def rank_df(dfin: pd.DataFrame) -> pd.DataFrame:
-            out = dfin.reset_index(drop=True).copy()
-            out.insert(0, "#", range(1, len(out) + 1))
-            return out
+    # ---- make sure core cols exist ----
+    for col in ["Country", "Channel"]:
+        if col not in df.columns:
+            df[col] = "Unknown"
+        df[col] = df[col].astype(str).fillna("Unknown")
 
-    if "fig_tight" not in globals():
-        def fig_tight(fig, height=520):
-            fig.update_layout(margin=dict(l=10, r=10, t=60, b=10), height=height)
-            try:
-                fig = style_fig(fig, height=height)
-            except Exception:
-                pass
-            return fig
-
-    if "download_html" not in globals():
-        def download_html(fig, filename: str, label: str = "Download chart (HTML)"):
-            try:
-                html = fig.to_html(full_html=True, include_plotlyjs="cdn")
-                st.download_button(
-                    label,
-                    data=html.encode("utf-8"),
-                    file_name=filename,
-                    mime="text/html",
-                    key=pkey("dl_html"),
-                )
-            except Exception:
-                pass
-
-    def download_xlsx(dfin: pd.DataFrame, filename: str, label: str = "Download table (Excel)"):
-        try:
-            import io
-            buff = io.BytesIO()
-            with pd.ExcelWriter(buff, engine="xlsxwriter") as writer:
-                dfin.to_excel(writer, index=False, sheet_name="table")
-            st.download_button(
-                label,
-                data=buff.getvalue(),
-                file_name=filename,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key=pkey("dl_xlsx"),
-            )
-        except Exception:
-            pass
-
-    def _is_money_metric(name: str, col: str) -> bool:
-        s = f"{name} {col}".lower()
-        money_words = ["sales", "revenue", "net", "gross", "amount", "cad", "$", "value"]
-        return any(w in s for w in money_words)
-
-    METRIC_IS_MONEY = _is_money_metric(metric_name, metric)
-
-    def fmt_metric(x):
-        try:
-            v = float(x)
-        except Exception:
-            return "—"
-        if not np.isfinite(v):
-            return "—"
-        if METRIC_IS_MONEY:
-            return f"${v:,.0f} CAD"
-        return f"{int(round(v)):,}"
-
-    def fmt_pct(p):
-        try:
-            p = float(p)
-        except Exception:
-            return "—"
-        if not np.isfinite(p):
-            return "—"
-        return f"{p*100:.1f}%"
-
-    def bullet(lines):
-        lines = [str(l).strip() for l in (lines or []) if str(l).strip()]
-        return "\n".join([f"- {l}" for l in lines]) if lines else "- —"
-
-    def insights_expander(title: str, insights_md: str, why_md: str, recs_md: str):
-        with st.expander(f"Insights - {title}", expanded=False):
-            st.markdown(f"**Insights:**\n{insights_md if insights_md.strip() else '-'}")
-            st.markdown(f"\n**Why it helps:**\n{why_md if why_md.strip() else '-'}")
-            st.markdown(f"\n**Recommendations:**\n{recs_md if recs_md.strip() else '-'}")
+    # ---- lag column (shipping) ----
+    if "Days to Ship" in df.columns:
+        lag_col = "Days to Ship"
+        df[lag_col] = pd.to_numeric(df[lag_col], errors="coerce")
+    elif "Days_to_Ship" in df.columns:
+        lag_col = "Days_to_Ship"
+        df[lag_col] = pd.to_numeric(df[lag_col], errors="coerce")
+    elif ("Date" in df.columns) and ("Shipped Date" in df.columns):
+        df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+        df["Shipped Date"] = pd.to_datetime(df["Shipped Date"], errors="coerce")
+        df["Days_to_Ship"] = (df["Shipped Date"] - df["Date"]).dt.days
+        lag_col = "Days_to_Ship"
+    else:
+        lag_col = None
 
     # SciPy (safe)
     try:
@@ -4978,404 +4914,165 @@ with tab_stats:
             return "<0.0001"
         return f"{v:.4f}"
 
-    # ---- make sure core cols exist ----
-    for col in ["Country", "Channel"]:
-        if col not in df.columns:
-            df[col] = "Unknown"
-        df[col] = df[col].astype(str).fillna("Unknown")
-
-    # ---- metric exists? (don’t crash; show message + make it 0) ----
-    if metric not in df.columns:
-        st.warning(f"Metric column '{metric}' not found in the uploaded file. Showing zeros for this tab.")
-        df[metric] = 0.0
+    # Insights expander (same pattern as Geography tab)
+    def insights_expander(title: str, insights_md: str, why_md: str, recs_md: str):
+        with st.expander(f"Insights - {title}", expanded=False):
+            st.markdown(f"**Insights:**\n{insights_md if insights_md.strip() else '-'}")
+            st.markdown(f"\n**Why it helps:**\n{why_md if why_md.strip() else '-'}")
+            st.markdown(f"\n**Recommendations:**\n{recs_md if recs_md.strip() else '-'}")
 
     # numeric metric column (safe)
     df_stat = df.copy()
-    df_stat[metric] = pd.to_numeric(df_stat[metric], errors="coerce").fillna(0.0)
+    df_stat[metric] = pd.to_numeric(df_stat[metric], errors="coerce")
 
-    # ---- lag column (shipping) ----
-    if "Days to Ship" in df_stat.columns:
-        lag_col = "Days to Ship"
-        df_stat[lag_col] = pd.to_numeric(df_stat[lag_col], errors="coerce")
-    elif "Days_to_Ship" in df_stat.columns:
-        lag_col = "Days_to_Ship"
-        df_stat[lag_col] = pd.to_numeric(df_stat[lag_col], errors="coerce")
-    elif ("Date" in df_stat.columns) and ("Shipped Date" in df_stat.columns):
-        df_stat["Date"] = pd.to_datetime(df_stat["Date"], errors="coerce")
-        df_stat["Shipped Date"] = pd.to_datetime(df_stat["Shipped Date"], errors="coerce")
-        df_stat["Days_to_Ship"] = (df_stat["Shipped Date"] - df_stat["Date"]).dt.days
-        lag_col = "Days_to_Ship"
-    else:
-        lag_col = None
-
-    # ---- consignment column (optional) ----
-    cons_col = None
-    for ccol in ["Is Consigned", "Consignment? (Y/N)", "Consignment", "Consignment?"]:
-        if ccol in df_stat.columns:
-            cons_col = ccol
-            break
-
-    if cons_col is not None:
-        s = df_stat[cons_col].astype(str).str.strip().str.lower()
-        df_stat["_is_consigned"] = s.isin(["y", "yes", "true", "1", "consigned"])
-    else:
-        df_stat["_is_consigned"] = np.nan
-
-    # ---- high-level quick stats (for dynamic insights) ----
-    n_rows = int(len(df_stat))
-    n_countries = int(df_stat["Country"].nunique()) if "Country" in df_stat.columns else 0
-    n_channels = int(df_stat["Channel"].nunique()) if "Channel" in df_stat.columns else 0
-    total_metric = float(df_stat[metric].sum()) if metric in df_stat.columns else np.nan
-
-    channel_totals = df_stat.groupby("Channel")[metric].sum().sort_values(ascending=False)
-    country_totals = df_stat.groupby("Country")[metric].sum().sort_values(ascending=False)
+    # basic totals for dynamic insights
+    total_metric = float(df_stat[metric].sum(skipna=True)) if metric in df_stat.columns else 0.0
+    channel_totals = df_stat.groupby("Channel")[metric].sum(min_count=1).sort_values(ascending=False)
+    country_totals = df_stat.groupby("Country")[metric].sum(min_count=1).sort_values(ascending=False)
 
     top_channel = str(channel_totals.index[0]) if len(channel_totals) else "—"
     top_country = str(country_totals.index[0]) if len(country_totals) else "—"
-    top_channel_share = (float(channel_totals.iloc[0]) / total_metric) if np.isfinite(total_metric) and total_metric > 0 and len(channel_totals) else np.nan
-    top_country_share = (float(country_totals.iloc[0]) / total_metric) if np.isfinite(total_metric) and total_metric > 0 and len(country_totals) else np.nan
+    top_channel_share = float(channel_totals.iloc[0] / total_metric) if len(channel_totals) and total_metric > 0 else np.nan
+    top_country_share = float(country_totals.iloc[0] / total_metric) if len(country_totals) and total_metric > 0 else np.nan
 
     # -----------------------------
-    # Sub-tabs
+    # 1) Channel value differences (Kruskal)
     # -----------------------------
-    tabs = st.tabs(["Channel Differences", "Country × Channel Mix", "Correlations"])
+    st.markdown("### 1) Do channels differ on order value?")
 
-    # ======================
-    # TAB 0: Channel Differences
-    # ======================
-    with tabs[0]:
-        st.markdown("### 1) Do channels differ on value?")
+    p1 = np.nan
+    H1 = np.nan
 
-        tmp = df_stat.dropna(subset=["Channel", metric]).copy()
-        tmp = tmp[tmp["Channel"].astype(str).str.strip().ne("")]
+    clean = df_stat.dropna(subset=["Channel", metric]).copy()
+    clean = clean[clean["Channel"].astype(str).str.strip().ne("")]
 
-        if tmp.empty or tmp["Channel"].nunique() < 2:
-            st.info("Not enough channel data under current filters.")
+    if stats is None:
+        st.info("SciPy not available in this environment (stats tests disabled).")
+    else:
+        grp = clean.groupby("Channel")[metric].apply(lambda x: pd.to_numeric(x, errors="coerce").dropna().values)
+        grp = grp[grp.apply(lambda a: len(a) >= 2)]
 
-            insights_expander(
-                "Channel Differences",
-                bullet([f"Rows in view: **{n_rows:,}**", "Not enough channel groups to compare."]),
-                bullet(["This test checks whether performance differs meaningfully by channel."]),
-                bullet(["Ensure the uploaded file has a **Channel** column and enough rows per channel."]),
+        if len(grp) >= 2:
+            H1, p1 = stats.kruskal(*grp.tolist())
+            st.write(
+                f"p-value: **{_p_fmt(p1)}** → "
+                + ("**Yes**, typical values differ across channels." if p1 < 0.05 else "**No strong evidence** of a difference.")
             )
         else:
-            # Summary table
-            ch_tbl = (
-                tmp.groupby("Channel", as_index=False)
-                .agg(
-                    orders=("Channel", "size"),
-                    total=(metric, "sum"),
-                    mean=(metric, "mean"),
-                    median=(metric, "median"),
+            st.write("Not enough data for this test with current filters.")
+
+    insights_md = "\n".join([
+        f"- Top channel by total: **{top_channel}**" + (f" (**{top_channel_share*100:.1f}%** of total)" if np.isfinite(top_channel_share) else ""),
+        f"- Channels in file: **{df_stat['Channel'].nunique()}**",
+        f"- Kruskal test p-value: **{_p_fmt(p1)}**" if np.isfinite(p1) else "- Kruskal test p-value: **—** (not available)",
+    ])
+    why_md = "\n".join([
+        "- This confirms whether channel performance differences are real (not just random noise).",
+        "- Helps you decide if you need channel-specific strategies."
+    ])
+    recs_md = "\n".join([
+        "- If p < 0.05: treat channels differently (pricing/promo/inventory per channel).",
+        "- If p ≥ 0.05: focus more on market mix or operational drivers instead of channel differences.",
+        f"- If one channel dominates (like **{top_channel}**), build a plan to reduce dependency by testing the #2 channel."
+    ])
+    insights_expander("Channel Differences", insights_md, why_md, recs_md)
+    st.divider()
+
+    # -----------------------------
+    # 2) Channel mix different by country? (Chi-square on counts)
+    # -----------------------------
+    st.markdown("### 2) Is channel mix different by country?")
+
+    p2 = np.nan
+    chi2 = np.nan
+
+    # choose top countries for stable test
+    top_for_test = country_totals.head(min(10, len(country_totals))).index
+    tmp = df_stat[df_stat["Country"].isin(top_for_test)].copy()
+
+    if stats is None:
+        st.info("SciPy not available in this environment (stats tests disabled).")
+    else:
+        if tmp["Country"].nunique() >= 2 and tmp["Channel"].nunique() >= 2:
+            # contingency table uses ORDER COUNTS (more correct than sums for mix tests)
+            cont = pd.crosstab(tmp["Country"], tmp["Channel"])
+            if cont.shape[0] >= 2 and cont.shape[1] >= 2:
+                chi2, p2, _, _ = stats.chi2_contingency(cont.values)
+                st.write(
+                    f"p-value: **{_p_fmt(p2)}** → "
+                    + ("**Yes**, channel mix differs by country." if p2 < 0.05 else "**No strong evidence** of a country-level mix difference.")
                 )
-            )
-            denom = float(ch_tbl["total"].sum())
-            ch_tbl["share"] = np.where(denom > 0, ch_tbl["total"] / denom, np.nan)
-            ch_tbl = ch_tbl.sort_values("total", ascending=False)
-
-            colA, colB = st.columns(2)
-
-            with colA:
-                fig1 = px.bar(ch_tbl, x="Channel", y="total", title=f"Total by Channel ({metric_name})")
-                fig1.update_layout(xaxis={"categoryorder": "total descending"})
-                fig1.update_traces(
-                    hovertemplate="<b>%{x}</b><br>Total: %{y:$,.0f} CAD<extra></extra>"
-                    if METRIC_IS_MONEY
-                    else "<b>%{x}</b><br>Total: %{y:,.0f}<extra></extra>"
-                )
-                fig1 = fig_tight(fig1, height=420)
-                st.plotly_chart(fig1, use_container_width=True, key=pkey("stats_ch_total"))
-                download_html(fig1, "stats_01_total_by_channel.html")
-
-            with colB:
-                # Distribution view (box)
-                fig2 = px.box(
-                    tmp,
-                    x="Channel",
-                    y=metric,
-                    points="outliers",
-                    title=f"Distribution by Channel ({metric_name})",
-                )
-                fig2.update_layout(xaxis={"categoryorder": "total descending"})
-                fig2.update_traces(
-                    hovertemplate="<b>%{x}</b><br>Value: %{y:$,.0f} CAD<extra></extra>"
-                    if METRIC_IS_MONEY
-                    else "<b>%{x}</b><br>Value: %{y:,.0f}<extra></extra>"
-                )
-                fig2 = fig_tight(fig2, height=420)
-                st.plotly_chart(fig2, use_container_width=True, key=pkey("stats_ch_box"))
-                download_html(fig2, "stats_02_distribution_by_channel.html")
-
-            st.subheader("Channel summary table")
-            show_tbl = ch_tbl.copy()
-            show_tbl["total"] = show_tbl["total"].round(0)
-            show_tbl["mean"] = show_tbl["mean"].round(2)
-            show_tbl["median"] = show_tbl["median"].round(2)
-            show_tbl = rank_df(show_tbl)
-            st.dataframe(show_tbl.set_index("#")[["Channel", "orders", "total", "share", "mean", "median"]], use_container_width=True)
-            download_xlsx(show_tbl.drop(columns=["#"]), "stats_channel_summary.xlsx")
-
-            # Kruskal test (non-parametric)
-            p_val = np.nan
-            H = np.nan
-            if stats is None:
-                st.info("SciPy not available in this environment (stat tests disabled).")
             else:
-                groups = []
-                for _, g in tmp.groupby("Channel"):
-                    vals = pd.to_numeric(g[metric], errors="coerce").dropna().values
-                    if len(vals) >= 2:
-                        groups.append(vals)
-                if len(groups) >= 2:
-                    H, p_val = stats.kruskal(*groups)
-                    st.write(f"**Kruskal–Wallis p-value:** {_p_fmt(p_val)}  " + ("→ **Yes, channels differ.**" if p_val < 0.05 else "→ **No strong evidence of difference.**"))
-                else:
-                    st.write("Not enough data per channel for a reliable test (need at least 2 values in 2+ channels).")
-
-            # Dynamic Insights
-            ins_lines = [
-                f"Rows in view: **{n_rows:,}** | Countries: **{n_countries}** | Channels: **{n_channels}**.",
-                (f"Top channel: **{top_channel}** ({fmt_pct(top_channel_share)} of total)." if np.isfinite(top_channel_share) else ""),
-                (f"Test result (Kruskal): p = **{_p_fmt(p_val)}**." if np.isfinite(p_val) else "Test result: **not available** (SciPy missing or not enough data)."),
-            ]
-            why_lines = [
-                "Confirms whether channel performance is truly different (not just noise).",
-                "Helps decide if you should run channel-specific strategies.",
-            ]
-            recs = []
-            if np.isfinite(p_val) and p_val < 0.05:
-                recs += [
-                    "Channels differ → build **channel-specific** playbooks (pricing, promos, inventory).",
-                    "Double down on the best channel(s) in top markets, and fix the weak ones with targeted experiments.",
-                ]
-            else:
-                recs += [
-                    "No strong difference detected → focus optimization on other drivers (country mix, product mix, shipping lag).",
-                ]
-            if np.isfinite(top_channel_share) and top_channel_share >= 0.60:
-                recs.append(f"Heavy dependence on **{top_channel}** → reduce risk by scaling the #2 channel in controlled tests.")
-
-            insights_expander("Channel Differences", bullet(ins_lines), bullet(why_lines), bullet(recs))
-            st.divider()
-
-    # ======================
-    # TAB 1: Country × Channel Mix
-    # ======================
-    with tabs[1]:
-        st.markdown("### 2) Is channel mix different by country?")
-
-        top_n = st.slider("Top N countries (by total)", 3, 30, 10, key="stats_mix_top_n")
-        view_mode = st.radio("Heatmap view", ["Share within country", "Absolute totals"], horizontal=True, key="stats_mix_view")
-
-        top_countries = country_totals.head(top_n).index.tolist()
-        tmp = df_stat[df_stat["Country"].isin(top_countries)].copy()
-
-        if tmp.empty or tmp["Channel"].nunique() < 2 or tmp["Country"].nunique() < 2:
-            st.info("Not enough data to compare channel mix by country under current filters.")
-
-            insights_expander(
-                "Country × Channel Mix",
-                bullet(["Not enough unique countries/channels after filters."]),
-                bullet(["This test checks if different countries rely on different channels."]),
-                bullet(["Increase Top N or widen filters so more countries/channels remain in the data."]),
-            )
+                st.write("Not enough countries/channels for this test under current filters.")
         else:
-            # contingency for chi-square (use counts)
-            pv_counts = tmp.pivot_table(index="Country", columns="Channel", values=metric, aggfunc="size", fill_value=0)
+            st.write("Not enough countries/channels for this test under current filters.")
 
-            p_mix = np.nan
-            chi2 = np.nan
-            dof = np.nan
+    insights_md = "\n".join([
+        f"- Top country by total: **{top_country}**" + (f" (**{top_country_share*100:.1f}%** of total)" if np.isfinite(top_country_share) else ""),
+        f"- Countries included in test: **{tmp['Country'].nunique()}** (top 10 by total)",
+        f"- Chi-square test p-value: **{_p_fmt(p2)}**" if np.isfinite(p2) else "- Chi-square test p-value: **—** (not available)",
+    ])
+    why_md = "\n".join([
+        "- If mix differs by country, a single global channel strategy will underperform.",
+        "- Helps you pick the best channel focus per market."
+    ])
+    recs_md = "\n".join([
+        "- If p < 0.05: build **country-specific** channel targets (1–2 primary channels per top country).",
+        "- If p ≥ 0.05: channel mix looks consistent → standardize playbook, then optimize execution.",
+        "- Re-run after applying filters (region, time) to spot where behavior changes."
+    ])
+    insights_expander("Country × Channel Mix", insights_md, why_md, recs_md)
+    st.divider()
+
+    # -----------------------------
+    # 3) Shipping lag relationship (Spearman) — only if lag exists
+    # -----------------------------
+    st.markdown("### 3) Is shipping lag related to performance?")
+
+    r3 = np.nan
+    p3 = np.nan
+    neg_lag_rows = 0
+
+    if lag_col is None or lag_col not in df_stat.columns:
+        st.write("Shipping lag not available (need Days to Ship or Date + Shipped Date).")
+    else:
+        neg_lag_rows = int((pd.to_numeric(df_stat[lag_col], errors="coerce") < 0).sum())
+        clean_neg = st.toggle("Treat negative lag rows as missing", value=True, key="stats_lag_clean_neg")
+
+        corr_df = df_stat[[metric, lag_col]].copy()
+        corr_df[metric] = pd.to_numeric(corr_df[metric], errors="coerce")
+        corr_df[lag_col] = pd.to_numeric(corr_df[lag_col], errors="coerce")
+        corr_df = corr_df.dropna(subset=[metric, lag_col])
+
+        if clean_neg:
+            corr_df = corr_df[corr_df[lag_col] >= 0]
+
+        if len(corr_df) < 10:
+            st.write("Not enough data for correlation stats under current filters.")
+        else:
             if stats is None:
-                st.info("SciPy not available (chi-square test disabled).")
+                st.info("SciPy not available in this environment (correlation test disabled).")
             else:
-                if pv_counts.shape[0] >= 2 and pv_counts.shape[1] >= 2:
-                    chi2, p_mix, dof, _ = stats.chi2_contingency(pv_counts.values)
-                    st.write(f"**Chi-square p-value:** {_p_fmt(p_mix)}  " + ("→ **Yes, mix differs by country.**" if p_mix < 0.05 else "→ **No strong evidence of difference.**"))
-                else:
-                    st.write("Need at least 2 countries and 2 channels for chi-square test.")
+                r3, p3 = stats.spearmanr(corr_df[metric].values, corr_df[lag_col].values)
+                st.write(f"Spearman r: **{r3:.3f}** | p-value: **{_p_fmt(p3)}**")
 
-            # heatmap values
-            if view_mode == "Share within country":
-                pv_show = pv_counts.div(pv_counts.sum(axis=1).replace(0, np.nan), axis=0).fillna(0)
-                unit = "share"
-                title = "Channel Mix Heatmap (Share within each Country)"
-            else:
-                pv_show = pv_counts
-                unit = "orders"
-                title = "Channel Mix Heatmap (Order Counts)"
+    insights_md = "\n".join([
+        f"- Shipping lag column used: **{lag_col}**" if lag_col else "- Shipping lag column used: **—**",
+        f"- Negative lag rows detected: **{neg_lag_rows}**" if neg_lag_rows else "- Negative lag rows detected: **0** (or lag not available).",
+        f"- Spearman correlation: **r={r3:.3f}**, p=**{_p_fmt(p3)}**" if np.isfinite(r3) else "- Spearman correlation: **—** (not available)",
+    ])
+    why_md = "\n".join([
+        "- Checks if delays are linked to worse (or better) performance in your data.",
+        "- Helps ops prioritize fixes where it will actually move results."
+    ])
+    recs_md = "\n".join([
+        "- If correlation is meaningful (and p < 0.05): fix lag hotspots first (carrier, cutoff times, warehouse process).",
+        "- Always clean negative lag rows so lag KPIs are reliable.",
+        "- Segment by country/channel next if the overall relationship looks weak."
+    ])
+    insights_expander("Shipping Lag Relationship", insights_md, why_md, recs_md)
+    st.divider()
 
-            fig = px.imshow(
-                pv_show,
-                aspect="auto",
-                title=title,
-                labels=dict(x="Channel", y="Country", color=unit),
-            )
-            fig = fig_tight(fig, height=520)
-            st.plotly_chart(fig, use_container_width=True, key=pkey("stats_mix_hm"))
-            download_html(fig, "stats_03_country_channel_mix_heatmap.html")
-
-            # quick table: best channel per country
-            best = []
-            if view_mode == "Share within country":
-                pv_for_best = pv_show
-            else:
-                pv_for_best = pv_counts.div(pv_counts.sum(axis=1).replace(0, np.nan), axis=0).fillna(0)
-
-            for c in pv_for_best.index:
-                ch = pv_for_best.loc[c].idxmax()
-                sh = float(pv_for_best.loc[c].max())
-                best.append({"Country": c, "Best Channel": ch, "Best Channel Share": sh})
-
-            best_df = pd.DataFrame(best).sort_values("Best Channel Share", ascending=False)
-            best_df["Best Channel Share"] = best_df["Best Channel Share"].map(lambda x: float(x))
-            best_df = rank_df(best_df)
-            st.subheader("Best channel by country (based on share)")
-            st.dataframe(best_df.set_index("#")[["Country", "Best Channel", "Best Channel Share"]], use_container_width=True)
-            download_xlsx(best_df.drop(columns=["#"]), "stats_best_channel_by_country.xlsx")
-
-            # Dynamic Insights
-            most_conc = best_df.iloc[0] if len(best_df) else None
-            ins_lines = [
-                f"Top country overall: **{top_country}** ({fmt_pct(top_country_share)} of total)." if np.isfinite(top_country_share) else f"Top country overall: **{top_country}**.",
-                (f"Mix test (chi-square): p = **{_p_fmt(p_mix)}**." if np.isfinite(p_mix) else "Mix test: **not available** (SciPy missing or not enough data)."),
-            ]
-            if most_conc is not None:
-                ins_lines.append(f"Most concentrated country: **{most_conc['Country']}** relies most on **{most_conc['Best Channel']}** ({fmt_pct(most_conc['Best Channel Share'])}).")
-
-            why_lines = [
-                "Shows if countries behave differently (so one global channel strategy won’t work).",
-                "Helps you prioritize the right channel in each market.",
-            ]
-
-            recs = []
-            if np.isfinite(p_mix) and p_mix < 0.05:
-                recs += [
-                    "Mix differs by country → set **country-specific** channel targets and budgets.",
-                    "Build a simple playbook: 1–2 primary channels per top country, then test 1 challenger channel.",
-                ]
-            else:
-                recs += [
-                    "Mix looks similar across countries → you can standardize channel strategy more, then optimize execution.",
-                ]
-            if most_conc is not None and float(most_conc["Best Channel Share"]) >= 0.70:
-                recs.append("Very high reliance in one country → add a backup channel to reduce risk.")
-
-            insights_expander("Country × Channel Mix", bullet(ins_lines), bullet(why_lines), bullet(recs))
-            st.divider()
-
-    # ======================
-    # TAB 2: Correlations
-    # ======================
-    with tabs[2]:
-        st.markdown("### 3) Relationships (correlation-style checks)")
-
-        col1, col2 = st.columns(2)
-
-        # ---- A) Ship lag vs metric (Spearman) ----
-        with col1:
-            st.subheader("A) Shipping lag vs metric")
-
-            if lag_col is None or lag_col not in df_stat.columns:
-                st.info("No shipping lag available (need Days to Ship or Date + Shipped Date).")
-                lag_r = lag_p = np.nan
-            else:
-                clean_neg = st.toggle("Treat negative lag rows as missing", value=True, key="stats_corr_clean_neg")
-                corr_df = df_stat[[metric, lag_col, "Country", "Channel"]].copy()
-                corr_df[lag_col] = pd.to_numeric(corr_df[lag_col], errors="coerce")
-                corr_df = corr_df.dropna(subset=[metric, lag_col])
-
-                if clean_neg:
-                    corr_df = corr_df[corr_df[lag_col] >= 0]
-
-                if len(corr_df) < 10:
-                    st.write("Not enough data for correlation stats under current filters.")
-                    lag_r = lag_p = np.nan
-                else:
-                    # Spearman correlation (robust)
-                    if stats is None:
-                        st.info("SciPy not available (correlation p-value disabled).")
-                        lag_r = float(pd.Series(corr_df[metric]).corr(pd.Series(corr_df[lag_col]), method="spearman"))
-                        lag_p = np.nan
-                    else:
-                        lag_r, lag_p = stats.spearmanr(corr_df[metric].values, corr_df[lag_col].values)
-
-                    st.write(f"**Spearman r:** {lag_r:.3f} | **p-value:** {_p_fmt(lag_p)}")
-
-                    fig = px.scatter(
-                        corr_df,
-                        x=lag_col,
-                        y=metric,
-                        hover_data=["Country", "Channel"],
-                        title=f"{metric_name} vs Ship Lag ({lag_col})",
-                    )
-                    fig = fig_tight(fig, height=420)
-                    st.plotly_chart(fig, use_container_width=True, key=pkey("stats_corr_scatter"))
-                    download_html(fig, "stats_04_metric_vs_ship_lag_scatter.html")
-
-        # ---- B) Consignment vs non-consignment ----
-        with col2:
-            st.subheader("B) Consigned vs non-consigned")
-
-            if cons_col is None or df_stat["_is_consigned"].isna().all():
-                st.info("No consignment flag found in this file.")
-                cons_p = np.nan
-                cons_rate = np.nan
-            else:
-                cons_rate = float(df_stat["_is_consigned"].mean() * 100)
-                g0 = df_stat[df_stat["_is_consigned"] == False][metric].dropna().values
-                g1 = df_stat[df_stat["_is_consigned"] == True][metric].dropna().values
-
-                # summary
-                summ = pd.DataFrame([
-                    {"Group": "Not consigned", "Rows": len(g0), "Mean": np.mean(g0) if len(g0) else np.nan, "Median": np.median(g0) if len(g0) else np.nan, "Total": np.sum(g0) if len(g0) else 0},
-                    {"Group": "Consigned", "Rows": len(g1), "Mean": np.mean(g1) if len(g1) else np.nan, "Median": np.median(g1) if len(g1) else np.nan, "Total": np.sum(g1) if len(g1) else 0},
-                ])
-                st.dataframe(summ, use_container_width=True)
-                download_xlsx(summ, "stats_consignment_summary.xlsx")
-
-                # test (Mann-Whitney for 2 groups)
-                cons_p = np.nan
-                if stats is None:
-                    st.info("SciPy not available (tests disabled).")
-                else:
-                    if len(g0) >= 2 and len(g1) >= 2:
-                        _, cons_p = stats.mannwhitneyu(g0, g1, alternative="two-sided")
-                        st.write(f"**Mann–Whitney p-value:** {_p_fmt(cons_p)}  " + ("→ **Different**" if cons_p < 0.05 else "→ **No strong evidence of difference**"))
-                    else:
-                        st.write("Not enough rows in both groups to run the test (need 2+ each).")
-
-        # ---- Dynamic Insights (Correlations) ----
-        ins_lines = [
-            (f"Ship lag correlation (Spearman): r = **{lag_r:.3f}**, p = **{_p_fmt(lag_p)}**." if np.isfinite(lag_r) else "Ship lag correlation: **not available** (missing lag or not enough data)."),
-            (f"Consignment rate: **{cons_rate:.1f}%**." if np.isfinite(cons_rate) else "Consignment rate: **not available** (no consignment column)."),
-            (f"Consignment difference test: p = **{_p_fmt(cons_p)}**." if np.isfinite(cons_p) else "Consignment difference test: **not available**."),
-        ]
-        why_lines = [
-            "Shows whether operational delay (ship lag) is linked to business results.",
-            "Checks if consigned orders behave differently and should be analyzed separately.",
-        ]
-        recs = []
-
-        if np.isfinite(lag_r):
-            if abs(lag_r) >= 0.30 and (not np.isfinite(lag_p) or lag_p < 0.05):
-                recs.append("Lag is meaningfully related to results → prioritize fixing delay hotspots (carriers, cutoff, warehouse).")
-            else:
-                recs.append("Lag relationship looks weak → focus on other levers (market/channel/product mix) first.")
-
-        if np.isfinite(cons_p) and cons_p < 0.05:
-            recs.append("Consigned vs non-consigned differs → report these separately (avoid mixing KPIs).")
-        elif cons_col is not None:
-            recs.append("Consignment doesn’t show a strong difference → you can keep combined reporting, but still monitor cash timing separately.")
-
-        if not recs:
-            recs = [
-                "Add reliable lag + consignment fields to unlock stronger operational insights.",
-                "Use these checks as “signals,” then drill down by country/channel to find the real drivers.",
-            ]
-
-        insights_expander("Correlations", bullet(ins_lines), bullet(why_lines), bullet(recs))
-        st.divider()
 
 
 # -----------------------------
