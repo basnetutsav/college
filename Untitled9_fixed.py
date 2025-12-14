@@ -2181,231 +2181,113 @@ with tabs[4]:
 # -----------------------------
 # TAB: Inventory Timing (Seasonality-style: 3 subtabs)
 # -----------------------------
-with tab_timing:
-    st.subheader("Inventory Timing")
-    st.markdown("## Seasonality Analysis")
-    st.caption("Visualization")
+#TAB 1 — Timing Analysis (CDF Curve - Cumulative Distribution Function)
 
-    t_df = f.copy()
-
-    # ---- pick revenue + price columns (same logic as your Price Drivers tab) ----
-    if "Net Sales" in t_df.columns:
-        revenue_col = "Net Sales"
-    elif "Price (CAD)" in t_df.columns:
-        revenue_col = "Price (CAD)"
-    else:
-        revenue_col = metric_col
-
-    price_col = "Price (CAD)" if "Price (CAD)" in t_df.columns else revenue_col
-
-    # ---- ensure Month exists ----
-    if "Month" in t_df.columns:
-        t_df["Month"] = pd.to_datetime(t_df["Month"], errors="coerce")
-    elif "Date" in t_df.columns:
-        t_df["Date"] = pd.to_datetime(t_df["Date"], errors="coerce")
-        t_df["Month"] = t_df["Date"].dt.to_period("M").dt.to_timestamp()
-    else:
-        t_df["Month"] = pd.NaT
-
-    # ---- numeric safety ----
-    t_df[revenue_col] = pd.to_numeric(t_df[revenue_col], errors="coerce")
-    t_df[price_col] = pd.to_numeric(t_df[price_col], errors="coerce")
-
-    # ---- 3 subtabs (exact set you want) ----
-    s1, s2, s3 = st.tabs(
-        [
-            "Price Elasticity",
-            "Fragile Months (Underperformance Scenario)",
-            "Campaign Opportunities (Slow Months)",
-        ]
+with tab1:
+    st.subheader("📈 Shipment Timing Curve (CDF)")
+    st.write(
+        "This curve shows the cumulative proportion of total shipments completed over time. "
+        "It helps identify when most inventory movement occurs during the year."
     )
 
-    # =========================================================
-    # SUBTAB 1 — Price Elasticity
-    # =========================================================
-    with s1:
-        st.subheader("Price Elasticity")
+    monthly_series = (
+        df_f.groupby('__month_dt')['__units']
+        .sum()
+        .sort_index()
+    )
 
-        base = (
-            t_df.dropna(subset=["Month", price_col, revenue_col])
-            .groupby("Month", as_index=False)
-            .agg(
-                Avg_Price=(price_col, "mean"),
-                Revenue=(revenue_col, "sum"),
-            )
-            .sort_values("Month")
-        )
+    cdf = monthly_series.cumsum() / monthly_series.sum()
 
-        if base.empty:
-            st.info("Not enough Month + Price + Revenue data for Price Elasticity.")
-        else:
-            # safe band + overpricing signals (derived from monthly avg price)
-            q25 = float(base["Avg_Price"].quantile(0.25))
-            q75 = float(base["Avg_Price"].quantile(0.75))
-            q90 = float(base["Avg_Price"].quantile(0.90))
+    fig, ax = plt.subplots(figsize=(10, 4))
+    ax.plot(cdf.index, cdf.values, marker='o')
+    ax.set_title("Cumulative Distribution of Shipments")
+    ax.set_ylabel("Proportion of Total Shipments")
+    ax.set_ylim(0, 1.05)
+    ax.grid(alpha=0.25)
+    st.pyplot(fig, use_container_width=True)
 
-            c1, c2 = st.columns(2)
-            with c1:
-                st.metric(
-                    "Safe pricing band (avg monthly price)",
-                    f"{q25:,.0f} – {q75:,.0f} CAD",
-                )
-            with c2:
-                st.metric(
-                    "Overpricing signals",
-                    f"{q90:,.0f} CAD",
-                )
+    #Seasonality chart
+    st.subheader("📅 Monthly Shipping Volume")
+    fig2, ax2 = plt.subplots(figsize=(10, 4))
+    ax2.bar(monthly_series.index, monthly_series.values)
+    ax2.set_title("Monthly Shipments (Seasonality)")
+    ax2.set_ylabel("Units Shipped")
+    st.pyplot(fig2, use_container_width=True)
 
-            base["MonthName"] = base["Month"].dt.strftime("%b")
-            month_order = base["Month"].dt.strftime("%b").tolist()
+#TAB 2 — Product Performance
 
-            st.markdown("**How does pricing relate to revenue across months?**")
+with tab2:
+    st.subheader("📊 Fast vs Slow Moving Products")
 
-            fig = px.scatter(
-                base,
-                x="Avg_Price",
-                y="Revenue",
-                color="MonthName",
-                category_orders={"MonthName": month_order},
-                title="",
-            )
-            fig.update_layout(
-                xaxis_title="Average Price (CAD)",
-                yaxis_title="Revenue (CAD)",
-                legend_title_text="Month",
-            )
-            fig.update_traces(marker=dict(size=10))
-            fig = style_fig(fig, height=520)
-            st.plotly_chart(fig, use_container_width=True, key=pkey("tim_season_scatter"))
+    product_volume = (
+        df_f.groupby('__product')['__units']
+        .sum()
+        .sort_values()
+    )
 
-            st.markdown(
-                """
-**1. Do higher prices lead to higher revenue, or does volume dominate?**  
-If “higher price = higher revenue” were always true, you’d see a clean upward diagonal.  
-If points cluster without a strong upward pattern, revenue is likely driven more by **volume** (or product mix) than price alone.
-"""
-            )
+    fig3, ax3 = plt.subplots(figsize=(10, 4))
+    product_volume.plot(kind='barh', ax=ax3)
+    ax3.set_title("Units Shipped by Product Type")
+    ax3.set_xlabel("Units Shipped")
+    st.pyplot(fig3, use_container_width=True)
 
-    # =========================================================
-    # SUBTAB 2 — Fragile Months if One Product Type Underperforms
-    # =========================================================
-    with s2:
-        st.subheader("Which Months Are Fragile if One Product Type Underperforms?")
-        st.caption("Revenue & Loss by Month (Simulated Underperformance Scenario)")
+#TAB 4 — Insights & Recommendations
 
-        if "Product Type" not in t_df.columns:
-            st.info("Need 'Product Type' to build the fragility scenario.")
-        else:
-            df2 = t_df.dropna(subset=["Month", "Product Type", revenue_col]).copy()
-            if df2.empty:
-                st.info("Not enough data for the fragility scenario.")
-            else:
-                # most critical product type = top revenue contributor
-                pt_tot = df2.groupby("Product Type")[revenue_col].sum().sort_values(ascending=False)
-                critical_pt = str(pt_tot.index[0]) if len(pt_tot) else "Unknown"
+with tab4:
+    st.subheader("💡 Key Insights")
 
-                monthly_total = df2.groupby("Month")[revenue_col].sum()
-                monthly_critical = df2[df2["Product Type"] == critical_pt].groupby("Month")[revenue_col].sum()
+    #Trend direction
+    trend_df = monthly_series.reset_index()
+    trend_df['t'] = np.arange(len(trend_df))
 
-                out = pd.DataFrame(
-                    {
-                        "Month": monthly_total.index,
-                        "Total": monthly_total.values,
-                        "At_Risk": monthly_critical.reindex(monthly_total.index).fillna(0).values,
-                    }
-                ).sort_values("Month")
+    slope = (
+        np.polyfit(trend_df['t'], trend_df['__units'], 1)[0]
+        if len(trend_df) > 1 else 0
+    )
 
-                out["Stable"] = (out["Total"] - out["At_Risk"]).clip(lower=0)
-                out["MonthName"] = pd.to_datetime(out["Month"]).dt.strftime("%b")
+    trend_label = (
+        "Increasing" if slope > 0.05
+        else "Decreasing" if slope < -0.05
+        else "Stable"
+    )
 
-                stacked = out.melt(
-                    id_vars=["Month", "MonthName"],
-                    value_vars=["At_Risk", "Stable"],
-                    var_name="Part",
-                    value_name="Revenue",
-                )
-                stacked["Part"] = stacked["Part"].map(
-                    {"At_Risk": critical_pt, "Stable": "Stable Revenue"}
-                )
+    top_products = product_volume.sort_values(ascending=False).head(3)
+    slow_products = product_volume.head(3)
 
-                fig = px.bar(
-                    stacked,
-                    x="MonthName",
-                    y="Revenue",
-                    color="Part",
-                    barmode="stack",
-                    title="",
-                )
-                fig.update_layout(
-                    xaxis_title="Month",
-                    yaxis_title="Revenue (CAD)",
-                    legend_title_text="Most critical product type",
-                )
-                fig.update_yaxes(tickprefix="$", separatethousands=True)
-                fig = style_fig(fig, height=420)
-                st.plotly_chart(fig, use_container_width=True, key=pkey("tim_fragile_bar"))
+    st.markdown(f"**Overall shipment trend:** {trend_label}")
+    st.markdown(f"**Peak shipping month:** {peak_month}")
 
-                st.markdown(
-                    f"""
-This visual shows how vulnerable each month’s revenue is if one key product type underperforms.
+    st.markdown("**Top-moving product types:**")
+    for p, v in top_products.items():
+        st.write(f"- {p}: {int(v):,} units")
 
-- **Gray** = revenue that remains stable.  
-- **Blue (at risk)** = revenue that depends heavily on **{critical_pt}**.
+    st.markdown("**Slow-moving product types:**")
+    for p, v in slow_products.items():
+        st.write(f"- {p}: {int(v):,} units")
 
-**Decision-making tip:**  
-Months with a larger “at risk” segment are **strong but fragile**—protect those months by diversifying mix, building backups, and planning inventory/marketing earlier.
-"""
-                )
+    st.markdown("### 📌 Recommendations")
+    st.write("- Increase safety stock ahead of peak shipping periods.")
+    st.write("- Review slow-moving products to reduce holding costs.")
+    st.write("- Align procurement cycles with observed shipment timing.")
+    st.write("- Consider adding *Received Date* data to enable true inventory aging metrics.")
 
-    # =========================================================
-    # SUBTAB 3 — Campaign Opportunities in Slow Months (Heatmap)
-    # =========================================================
-    with s3:
-        st.subheader("Campaign Opportunities in Slow Months")
+#TAB 5 — Summary
 
-        if "Product Type" not in t_df.columns:
-            st.info("Need 'Product Type' to build the campaign opportunities heatmap.")
-        else:
-            df3 = t_df.dropna(subset=["Month", "Product Type", revenue_col]).copy()
-            if df3.empty:
-                st.info("Not enough data for the heatmap.")
-            else:
-                # pick the slowest 4 months by total revenue (matches your screenshot style)
-                m_tot = df3.groupby("Month")[revenue_col].sum().sort_values()
-                slow_months = m_tot.head(4).index.tolist()
+with tab5:
+    st.subheader("📄 Executive Summary")
 
-                sub = df3[df3["Month"].isin(slow_months)].copy()
-                sub["MonthNum"] = pd.to_datetime(sub["Month"]).dt.month
+    st.markdown(f"""
+    **Inventory Performance Overview (Filtered View)**
 
-                mix = (
-                    sub.groupby(["Product Type", "MonthNum"], as_index=False)[revenue_col]
-                    .sum()
-                    .rename(columns={revenue_col: "Value"})
-                )
-                totals = mix.groupby("MonthNum", as_index=False)["Value"].sum().rename(columns={"Value": "MonthTotal"})
-                mix = mix.merge(totals, on="MonthNum", how="left")
-                mix["Share"] = np.where(mix["MonthTotal"] > 0, mix["Value"] / mix["MonthTotal"], 0)
+    - **Total units shipped:** {total_units:,}
+    - **Peak operational period:** {peak_month}
+    - **Average monthly shipments:** {avg_monthly:.1f} units
+    - **Shipment timing patterns** reveal when inventory movement is most intense
 
-                pv = mix.pivot_table(index="Product Type", columns="MonthNum", values="Share", fill_value=0)
-
-                hm = px.imshow(
-                    pv,
-                    aspect="auto",
-                    labels=dict(x="Month", y="Product Type", color="Share of Month"),
-                    title="",
-                )
-                hm = style_fig(hm, height=320)
-                st.plotly_chart(hm, use_container_width=True, key=pkey("tim_campaign_hm"))
-
-                st.markdown(
-                    """
-This heatmap shows which product types are best campaign opportunities during **slow months**.
-
-- Darker cells = a bigger share of that month’s revenue (stronger candidates).
-- Use this to plan **bundles**, **promotions**, and **content** around product types that reliably show up when sales are softer.
-"""
-                )
-
+    This dashboard focuses exclusively on **inventory timing and movement**, 
+    providing leadership with actionable insights for stocking, planning, 
+    and operational efficiency.
+    """)
 # -----------------------------
 # TAB: Ownership (upgrade)
 # -----------------------------
