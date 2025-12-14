@@ -2463,81 +2463,231 @@ with tab_ownership:
 # -----------------------------
 # TAB: Seasonality (upgrade)
 # -----------------------------
-with tab_seasonality:
-    st.subheader("Seasonality – Time Patterns in Sales")
-    se_df = f.copy()
+with tab_timing:
+    st.subheader("Inventory Timing")
+    st.markdown("## Seasonality Analysis")
+    st.caption("Visualization")
 
-    se_tabs = st.tabs(["Monthly Trend", "Month × Channel", "Year × Month Heatmap", "Day-of-week", "Data"])
+    t_df = f.copy()
 
-    with se_tabs[0]:
-        monthly = se_df.groupby("Month", as_index=False)[metric_col].sum().sort_values("Month")
-        fig = px.line(monthly, x="Month", y=metric_col, markers=True, title=f"Monthly {metric_label}")
-        fig.update_layout(xaxis_title="Month", yaxis_title=metric_label)
-        fig = style_fig(fig, height=430)
-        st.plotly_chart(fig, use_container_width=True, key=pkey("sea_month"))
+    # ---- pick revenue + price columns (same logic as your Price Drivers tab) ----
+    if "Net Sales" in t_df.columns:
+        revenue_col = "Net Sales"
+    elif "Price (CAD)" in t_df.columns:
+        revenue_col = "Price (CAD)"
+    else:
+        revenue_col = metric_col
 
-        quarter = se_df.groupby("Quarter", as_index=False)[metric_col].sum().sort_values("Quarter")
-        fig2 = px.bar(quarter, x="Quarter", y=metric_col, title=f"{metric_label} by Quarter", text_auto=".2s")
-        fig2.update_layout(xaxis_title="Quarter", yaxis_title=metric_label)
-        fig2 = style_fig(fig2, height=430)
-        st.plotly_chart(fig2, use_container_width=True, key=pkey("sea_q"))
+    price_col = "Price (CAD)" if "Price (CAD)" in t_df.columns else revenue_col
 
-    with se_tabs[1]:
-        month_channel = se_df.pivot_table(index="Month Name", columns="Channel", values=metric_col, aggfunc="sum").fillna(0)
-        month_order = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
-        month_channel = month_channel.reindex([m for m in month_order if m in month_channel.index])
-        if not month_channel.empty:
-            hm = px.imshow(
-                month_channel,
-                labels=dict(x="Channel", y="Month", color=metric_label),
-                title=f"Seasonality Heatmap – Month × Channel ({metric_label})",
-                aspect="auto",
+    # ---- ensure Month exists ----
+    if "Month" in t_df.columns:
+        t_df["Month"] = pd.to_datetime(t_df["Month"], errors="coerce")
+    elif "Date" in t_df.columns:
+        t_df["Date"] = pd.to_datetime(t_df["Date"], errors="coerce")
+        t_df["Month"] = t_df["Date"].dt.to_period("M").dt.to_timestamp()
+    else:
+        t_df["Month"] = pd.NaT
+
+    # ---- numeric safety ----
+    t_df[revenue_col] = pd.to_numeric(t_df[revenue_col], errors="coerce")
+    t_df[price_col] = pd.to_numeric(t_df[price_col], errors="coerce")
+
+    # ---- 3 subtabs (exact set you want) ----
+    s1, s2, s3 = st.tabs(
+        [
+            "Price Elasticity",
+            "Fragile Months (Underperformance Scenario)",
+            "Campaign Opportunities (Slow Months)",
+        ]
+    )
+
+    # =========================================================
+    # SUBTAB 1 — Price Elasticity
+    # =========================================================
+    with s1:
+        st.subheader("Price Elasticity")
+
+        base = (
+            t_df.dropna(subset=["Month", price_col, revenue_col])
+            .groupby("Month", as_index=False)
+            .agg(
+                Avg_Price=(price_col, "mean"),
+                Revenue=(revenue_col, "sum"),
             )
-            hm = style_fig(hm, height=480)
-            st.plotly_chart(hm, use_container_width=True, key=pkey("sea_hm_mc"))
-        else:
-            st.info("No data to display for Month × Channel.")
-
-    with se_tabs[2]:
-        ym = se_df.copy()
-        ym["MonthShort"] = ym["Date"].dt.strftime("%b")
-        pv = ym.pivot_table(index="Year", columns="MonthShort", values=metric_col, aggfunc="sum").fillna(0)
-        pv = pv.reindex(columns=[m for m in ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"] if m in pv.columns])
-        if not pv.empty and pv.shape[0] >= 1:
-            hm = px.imshow(
-                pv.round(0),
-                aspect="auto",
-                title=f"{metric_label} Heatmap – Year × Month",
-                labels=dict(x="Month", y="Year", color=metric_label),
-            )
-            hm = style_fig(hm, height=450)
-            st.plotly_chart(hm, use_container_width=True, key=pkey("sea_hm_ym"))
-        else:
-            st.info("Not enough data for Year × Month heatmap.")
-
-    with se_tabs[3]:
-        dow = se_df.groupby("Day Name", as_index=False)[metric_col].sum()
-        dow_order = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
-        dow["Day Name"] = pd.Categorical(dow["Day Name"], categories=dow_order, ordered=True)
-        dow = dow.sort_values("Day Name")
-        fig = px.bar(dow, x="Day Name", y=metric_col, title=f"{metric_label} by Day of Week", text_auto=".2s")
-        fig.update_layout(xaxis_title="Day of Week", yaxis_title=metric_label)
-        fig = style_fig(fig, height=430)
-        st.plotly_chart(fig, use_container_width=True, key=pkey("sea_dow"))
-
-    with se_tabs[4]:
-        cols = ["Sale ID", "Date", "Country", "Channel", "Month", "Quarter", "Day Name", metric_col, "Net Sales"]
-        cols = [c for c in cols if c in se_df.columns]
-        subset = se_df[cols].copy()
-        subset = subset.loc[:, ~subset.columns.duplicated()]
-        st.dataframe(subset.head(max_rows), use_container_width=True)
-        st.download_button(
-            "Download seasonality subset (CSV)",
-            data=subset.to_csv(index=False).encode("utf-8"),
-            file_name="seasonality_subset.csv",
-            mime="text/csv",
-            key="dl_season",
+            .sort_values("Month")
         )
+
+        if base.empty:
+            st.info("Not enough Month + Price + Revenue data for Price Elasticity.")
+        else:
+            # safe band + overpricing signals (derived from monthly avg price)
+            q25 = float(base["Avg_Price"].quantile(0.25))
+            q75 = float(base["Avg_Price"].quantile(0.75))
+            q90 = float(base["Avg_Price"].quantile(0.90))
+
+            c1, c2 = st.columns(2)
+            with c1:
+                st.metric(
+                    "Safe pricing band (avg monthly price)",
+                    f"{q25:,.0f} – {q75:,.0f} CAD",
+                )
+            with c2:
+                st.metric(
+                    "Overpricing signals",
+                    f"{q90:,.0f} CAD",
+                )
+
+            base["MonthName"] = base["Month"].dt.strftime("%b")
+            month_order = base["Month"].dt.strftime("%b").tolist()
+
+            st.markdown("**How does pricing relate to revenue across months?**")
+
+            fig = px.scatter(
+                base,
+                x="Avg_Price",
+                y="Revenue",
+                color="MonthName",
+                category_orders={"MonthName": month_order},
+                title="",
+            )
+            fig.update_layout(
+                xaxis_title="Average Price (CAD)",
+                yaxis_title="Revenue (CAD)",
+                legend_title_text="Month",
+            )
+            fig.update_traces(marker=dict(size=10))
+            fig = style_fig(fig, height=520)
+            st.plotly_chart(fig, use_container_width=True, key=pkey("tim_season_scatter"))
+
+            st.markdown(
+                """
+**1. Do higher prices lead to higher revenue, or does volume dominate?**  
+If “higher price = higher revenue” were always true, you’d see a clean upward diagonal.  
+If points cluster without a strong upward pattern, revenue is likely driven more by **volume** (or product mix) than price alone.
+"""
+            )
+
+    # =========================================================
+    # SUBTAB 2 — Fragile Months if One Product Type Underperforms
+    # =========================================================
+    with s2:
+        st.subheader("Which Months Are Fragile if One Product Type Underperforms?")
+        st.caption("Revenue & Loss by Month (Simulated Underperformance Scenario)")
+
+        if "Product Type" not in t_df.columns:
+            st.info("Need 'Product Type' to build the fragility scenario.")
+        else:
+            df2 = t_df.dropna(subset=["Month", "Product Type", revenue_col]).copy()
+            if df2.empty:
+                st.info("Not enough data for the fragility scenario.")
+            else:
+                # most critical product type = top revenue contributor
+                pt_tot = df2.groupby("Product Type")[revenue_col].sum().sort_values(ascending=False)
+                critical_pt = str(pt_tot.index[0]) if len(pt_tot) else "Unknown"
+
+                monthly_total = df2.groupby("Month")[revenue_col].sum()
+                monthly_critical = df2[df2["Product Type"] == critical_pt].groupby("Month")[revenue_col].sum()
+
+                out = pd.DataFrame(
+                    {
+                        "Month": monthly_total.index,
+                        "Total": monthly_total.values,
+                        "At_Risk": monthly_critical.reindex(monthly_total.index).fillna(0).values,
+                    }
+                ).sort_values("Month")
+
+                out["Stable"] = (out["Total"] - out["At_Risk"]).clip(lower=0)
+                out["MonthName"] = pd.to_datetime(out["Month"]).dt.strftime("%b")
+
+                stacked = out.melt(
+                    id_vars=["Month", "MonthName"],
+                    value_vars=["At_Risk", "Stable"],
+                    var_name="Part",
+                    value_name="Revenue",
+                )
+                stacked["Part"] = stacked["Part"].map(
+                    {"At_Risk": critical_pt, "Stable": "Stable Revenue"}
+                )
+
+                fig = px.bar(
+                    stacked,
+                    x="MonthName",
+                    y="Revenue",
+                    color="Part",
+                    barmode="stack",
+                    title="",
+                )
+                fig.update_layout(
+                    xaxis_title="Month",
+                    yaxis_title="Revenue (CAD)",
+                    legend_title_text="Most critical product type",
+                )
+                fig.update_yaxes(tickprefix="$", separatethousands=True)
+                fig = style_fig(fig, height=420)
+                st.plotly_chart(fig, use_container_width=True, key=pkey("tim_fragile_bar"))
+
+                st.markdown(
+                    f"""
+This visual shows how vulnerable each month’s revenue is if one key product type underperforms.
+
+- **Gray** = revenue that remains stable.  
+- **Blue (at risk)** = revenue that depends heavily on **{critical_pt}**.
+
+**Decision-making tip:**  
+Months with a larger “at risk” segment are **strong but fragile**—protect those months by diversifying mix, building backups, and planning inventory/marketing earlier.
+"""
+                )
+
+    # =========================================================
+    # SUBTAB 3 — Campaign Opportunities in Slow Months (Heatmap)
+    # =========================================================
+    with s3:
+        st.subheader("Campaign Opportunities in Slow Months")
+
+        if "Product Type" not in t_df.columns:
+            st.info("Need 'Product Type' to build the campaign opportunities heatmap.")
+        else:
+            df3 = t_df.dropna(subset=["Month", "Product Type", revenue_col]).copy()
+            if df3.empty:
+                st.info("Not enough data for the heatmap.")
+            else:
+                # pick the slowest 4 months by total revenue (matches your screenshot style)
+                m_tot = df3.groupby("Month")[revenue_col].sum().sort_values()
+                slow_months = m_tot.head(4).index.tolist()
+
+                sub = df3[df3["Month"].isin(slow_months)].copy()
+                sub["MonthNum"] = pd.to_datetime(sub["Month"]).dt.month
+
+                mix = (
+                    sub.groupby(["Product Type", "MonthNum"], as_index=False)[revenue_col]
+                    .sum()
+                    .rename(columns={revenue_col: "Value"})
+                )
+                totals = mix.groupby("MonthNum", as_index=False)["Value"].sum().rename(columns={"Value": "MonthTotal"})
+                mix = mix.merge(totals, on="MonthNum", how="left")
+                mix["Share"] = np.where(mix["MonthTotal"] > 0, mix["Value"] / mix["MonthTotal"], 0)
+
+                pv = mix.pivot_table(index="Product Type", columns="MonthNum", values="Share", fill_value=0)
+
+                hm = px.imshow(
+                    pv,
+                    aspect="auto",
+                    labels=dict(x="Month", y="Product Type", color="Share of Month"),
+                    title="",
+                )
+                hm = style_fig(hm, height=320)
+                st.plotly_chart(hm, use_container_width=True, key=pkey("tim_campaign_hm"))
+
+                st.markdown(
+                    """
+This heatmap shows which product types are best campaign opportunities during **slow months**.
+
+- Darker cells = a bigger share of that month’s revenue (stronger candidates).
+- Use this to plan **bundles**, **promotions**, and **content** around product types that reliably show up when sales are softer.
+"""
+                )
+
 # -----------------------------
 # TAB: Compliance (with DIR expanders + metric tiles for all 7 charts)
 # -----------------------------
