@@ -2147,7 +2147,6 @@ with tab_segments:
             mime="text/csv",
             key="dl_segments",
         )
-
 # -----------------------------
 # TAB: Geography & Channels (Price-Drivers style layout)
 # -----------------------------
@@ -2692,6 +2691,8 @@ with tab_geo:
 
         insights_expander("Stats", insights_md, why_md, recs_md)
         st.divider()
+
+
 
 # -----------------------------
 # TAB 6: Inventory Timing 
