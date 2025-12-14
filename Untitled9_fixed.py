@@ -1887,7 +1887,7 @@ with tab_geo:
                 data=html.encode("utf-8"),
                 file_name=filename,
                 mime="text/html",
-                key=pkey("dl_html"),
+                key=wkey("dl_html"),
             )
         except Exception:
             pass
@@ -2015,7 +2015,7 @@ with tab_geo:
             fig1.update_layout(xaxis={"categoryorder": "total descending"})
             fig1.update_traces(hovertemplate="<b>%{x}</b><br>Value: %{y:$,.0f} CAD<extra></extra>")
             fig1 = fig_tight(fig1, height=460)
-            st.plotly_chart(fig1, use_container_width=True, key=pkey("geo_top_c"))
+            st.plotly_chart(fig1, use_container_width=True, key=wkey("geo_top_c"))
             download_html(fig1, "02_top_countries.html")
 
         with colB:
@@ -2025,7 +2025,7 @@ with tab_geo:
             fig2.update_layout(xaxis={"categoryorder": "total descending"})
             fig2.update_traces(hovertemplate="<b>%{x}</b><br>Value: %{y:$,.0f} CAD<extra></extra>")
             fig2 = fig_tight(fig2, height=460)
-            st.plotly_chart(fig2, use_container_width=True, key=pkey("geo_ch_bar"))
+            st.plotly_chart(fig2, use_container_width=True, key=wkey("geo_ch_bar"))
             download_html(fig2, "03_channel_bar.html")
 
         st.subheader("Country × Channel heatmap (Top countries)")
@@ -2037,7 +2037,7 @@ with tab_geo:
             st.info("Not enough data for the heatmap in current filters.")
         else:
             fig3 = heatmap_from_pivot(pv, f"Heatmap: {metric_name} ($ CAD)", "$ CAD")
-            st.plotly_chart(fig3, use_container_width=True, key=pkey("geo_hm"))
+            st.plotly_chart(fig3, use_container_width=True, key=wkey("geo_hm"))
             download_html(fig3, "04_country_channel_heatmap.html")
 
         st.subheader("Channel mix share by country (Top countries)")
@@ -2056,7 +2056,7 @@ with tab_geo:
             )
             fig4.update_layout(yaxis_tickformat=".0%", xaxis={"categoryorder": "total descending"})
             fig4 = fig_tight(fig4, height=520)
-            st.plotly_chart(fig4, use_container_width=True, key=pkey("geo_mix"))
+            st.plotly_chart(fig4, use_container_width=True, key=wkey("geo_mix"))
             download_html(fig4, "05_channel_mix_share.html")
 
         insights_expander(
@@ -2087,7 +2087,7 @@ with tab_geo:
             fig = px.line(ts_df, x="Month", y="value", title=f"Monthly {metric_name} ($ CAD)")
             fig.update_traces(hovertemplate="Month: %{x|%Y-%m}<br>Value: %{y:$,.0f} CAD<extra></extra>")
             fig = fig_tight(fig, height=420)
-            st.plotly_chart(fig, use_container_width=True, key=pkey("time_month"))
+            st.plotly_chart(fig, use_container_width=True, key=wkey("time_month"))
             download_html(fig, "10_monthly_trend.html")
 
         ch_tot = geo_df.groupby("Channel")[metric].sum().sort_values(ascending=False)
@@ -2106,7 +2106,7 @@ with tab_geo:
                            title=f"Monthly {metric_name} by Channel (Top 6) ($ CAD)")
             figc.update_traces(hovertemplate="Month: %{x|%Y-%m}<br>Value: %{y:$,.0f} CAD<extra></extra>")
             figc = fig_tight(figc, height=420)
-            st.plotly_chart(figc, use_container_width=True, key=pkey("time_ch"))
+            st.plotly_chart(figc, use_container_width=True, key=wkey("time_ch"))
             download_html(figc, "11_monthly_trend_by_channel_top6.html")
 
         st.divider()
@@ -2133,18 +2133,18 @@ with tab_geo:
                     fig1 = px.bar(by_country, x="Country", y="Ship Lag (days)", title="Avg Ship Lag by Country (days)")
                     fig1.update_layout(xaxis={"categoryorder": "total descending"})
                     fig1 = fig_tight(fig1, height=420)
-                    st.plotly_chart(fig1, use_container_width=True, key=pkey("lag_country"))
+                    st.plotly_chart(fig1, use_container_width=True, key=wkey("lag_country"))
                     download_html(fig1, "06_ship_lag_by_country.html")
 
                     pick = st.selectbox("Country → city drilldown",
                                         sorted(lag_df["Country"].unique().tolist()),
-                                        key="lag_pick")
+                                        key=wkey("lag_pick")
                     by_city = (lag_df[lag_df["Country"] == pick].groupby("City")["Ship Lag (days)"].mean()
                                .sort_values(ascending=False).head(15).reset_index())
                     fig2 = px.bar(by_city, x="City", y="Ship Lag (days)", title=f"Avg Ship Lag by City in {pick} (Top 15)")
                     fig2.update_layout(xaxis={"categoryorder": "total descending"})
                     fig2 = fig_tight(fig2, height=420)
-                    st.plotly_chart(fig2, use_container_width=True, key=pkey("lag_city"))
+                    st.plotly_chart(fig2, use_container_width=True, key=wkey("lag_city"))
                     download_html(fig2, "07_ship_lag_by_city.html")
 
                 with col2:
