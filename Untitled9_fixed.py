@@ -447,8 +447,6 @@ def load_data(uploaded_file=None):
     df["Is Export"] = df["Country"].ne("Canada")
 
     return df
-
-
 # -----------------------------
 # Sidebar: Data source + Filters
 # -----------------------------
@@ -462,20 +460,31 @@ uploaded = st.sidebar.file_uploader(
 )
 
 df = load_data(uploaded_file=uploaded)
+
 # Make sure Sale Date is datetime
 df["Sale Date"] = pd.to_datetime(df["Sale Date"], errors="coerce")
 
-min_d = df["Sale Date"].min().date()
-max_d = df["Sale Date"].max().date()
+# Safe min/max (drop NaT)
+d = df["Sale Date"].dropna()
+if d.empty:
+    st.sidebar.warning("No valid Sale Date values found.")
+    cur_start = cur_end = None
+else:
+    min_d = d.min().date()
+    max_d = d.max().date()
 
-cur_start, cur_end = st.slider(
-    "Sale Date range",
-    min_value=min_d,
-    max_value=max_d,
-    value=(min_d, max_d),   # default full range
-    format="YYYY/MM/DD",
-)
+    cur_start, cur_end = st.sidebar.slider(
+        "Sale Date range",
+        min_value=min_d,
+        max_value=max_d,
+        value=(min_d, max_d),
+        format="YYYY/MM/DD",
+    )
 
+    # Apply filter (inclusive)
+    start_ts = pd.Timestamp(cur_start)
+    end_ts = pd.Timestamp(cur_end) + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
+    df = df[df["Sale Date"].between(start_ts, end_ts)]
 
 # Core filters
 country_options = sorted(df["Country"].dropna().unique())
