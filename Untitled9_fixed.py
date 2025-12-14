@@ -600,7 +600,7 @@ with k1:
     st.metric(
         "Total Net Sales",
         fmt_money(cur_total_net),
-        delta=(None if not np.isfinite(prev_total_net) else fmt_money(cur_total_net - prev_total_net)),
+        delta=(None if not np.isfinite(prev_total_net) else fmt_money(cur_total_net)),
     )
 
 with k2:
