@@ -3396,6 +3396,516 @@ with tab_timing:
 # -----------------------------
 # End of TAB 6: Inventory Timing 
 # -----------------------------
+# ============================
+# TAB 7: OWNERSHIP
+# ============================
+#-----Helpers--------#
+
+def render_ownership_analysis_tab(df_in: pd.DataFrame):
+    st.markdown("### Ownership Analysis – Revenue, Units, Ticket & Efficiency")
+
+    df = _ensure_month_and_ownership(df_in)
+
+    # Basic validations
+    required_cols = ["Ownership", "Price (CAD)", "Sale ID", "Month"]
+    missing = [c for c in required_cols if c not in df.columns]
+    if missing:
+        st.error(f"Missing required columns in dataset: {missing}")
+        return
+
+    # Monthly revenue pivot (Owned vs Consigned)
+    monthly_revenue = (
+        df.groupby(["Month", "Ownership"])["Price (CAD)"]
+          .sum()
+          .reset_index()
+          .pivot(index="Month", columns="Ownership", values="Price (CAD)")
+          .fillna(0)
+    )
+    if "Owned" not in monthly_revenue.columns:
+        monthly_revenue["Owned"] = 0.0
+    if "Consigned" not in monthly_revenue.columns:
+        monthly_revenue["Consigned"] = 0.0
+    monthly_revenue["Total"] = monthly_revenue.sum(axis=1)
+
+    # KPIs
+    c1, c2, c3, c4, c5 = st.columns(5)
+
+    total_sales_cad = float(df["Price (CAD)"].sum())
+    revenue_by_ownership = df.groupby("Ownership")["Price (CAD)"].sum().to_dict()
+    total_revenue = sum(revenue_by_ownership.values())
+
+    owned_revenue = float(revenue_by_ownership.get("Owned", 0.0))
+    consigned_revenue = float(revenue_by_ownership.get("Consigned", 0.0))
+
+    owned_pct = (owned_revenue / total_revenue * 100) if total_revenue > 0 else 0.0
+    consigned_pct = (consigned_revenue / total_revenue * 100) if total_revenue > 0 else 0.0
+
+    monthly_revenue_sorted = monthly_revenue.copy()
+    monthly_revenue_sorted["Month_dt"] = pd.to_datetime(monthly_revenue_sorted.index, format="%Y-%m", errors="coerce")
+    monthly_revenue_sorted = monthly_revenue_sorted.dropna(subset=["Month_dt"]).sort_values("Month_dt")
+    growth_series = monthly_revenue_sorted["Total"].pct_change().dropna()
+    avg_monthly_growth_pct = float(growth_series.mean() * 100) if not growth_series.empty else 0.0
+
+    c1.metric("Total Sales (CAD)", f"${total_sales_cad:,.2f}")
+    c2.metric("Owned Revenue %", f"{owned_pct:.1f}%")
+    c3.metric("Consigned Revenue %", f"{consigned_pct:.1f}%")
+    c4.metric("Avg Monthly Revenue Growth", f"{avg_monthly_growth_pct:.1f}%")
+
+    # Commercial ROI KPI (Revenue per Sale) + dynamic "best"
+    df_roi_kpi = df.dropna(subset=["Ownership", "Price (CAD)", "Sale ID"]).copy()
+    if df_roi_kpi.empty:
+        c5.metric("Commercial ROI Advantage", "N/A", delta="Not enough data")
+    else:
+        roi_base_kpi = (
+            df_roi_kpi.groupby("Ownership", as_index=False)
+                      .agg(Sales=("Sale ID", "count"), Revenue_CAD=("Price (CAD)", "sum"))
+        )
+        roi_base_kpi = roi_base_kpi[roi_base_kpi["Sales"] > 0]
+        if len(roi_base_kpi) < 2:
+            only_row = roi_base_kpi.iloc[0]
+            c5.metric("Commercial ROI Advantage", "N/A", delta=f"Only `{only_row['Ownership']}` has valid sales")
+        else:
+            roi_base_kpi["Revenue_per_Sale"] = roi_base_kpi["Revenue_CAD"] / roi_base_kpi["Sales"]
+            best = roi_base_kpi.loc[roi_base_kpi["Revenue_per_Sale"].idxmax()]
+            worst = roi_base_kpi.loc[roi_base_kpi["Revenue_per_Sale"].idxmin()]
+            if float(worst["Revenue_per_Sale"]) > 0:
+                ratio = float(best["Revenue_per_Sale"]) / float(worst["Revenue_per_Sale"])
+                pct_advantage = (ratio - 1.0) * 100.0
+                c5.metric("Commercial ROI Advantage", f"{pct_advantage:,.0f}%", delta=f"Best ROI: {best['Ownership']}")
+            else:
+                c5.metric("Commercial ROI Advantage", "∞", delta=f"Best ROI: {best['Ownership']}")
+
+    st.markdown("---")
+    st.subheader("Monthly Trend: Owned vs Consigned")
+
+    view_option = st.radio("Select metric to display:", ["Revenue (CAD)", "Sales Count"], horizontal=True, key=wkey("own_metric"))
+
+    # Revenue time series
+    rev_df = monthly_revenue[["Owned", "Consigned"]].copy().reset_index()
+    rev_df["Month_dt"] = pd.to_datetime(rev_df["Month"], format="%Y-%m", errors="coerce")
+    rev_df = rev_df.dropna(subset=["Month_dt"]).sort_values("Month_dt")
+
+    # Sales counts time series
+    monthly_count = (
+        df.groupby(["Month", "Ownership"])["Sale ID"]
+          .count()
+          .reset_index(name="Sales_Count")
+          .pivot(index="Month", columns="Ownership", values="Sales_Count")
+          .fillna(0)
+    )
+    if "Owned" not in monthly_count.columns:
+        monthly_count["Owned"] = 0
+    if "Consigned" not in monthly_count.columns:
+        monthly_count["Consigned"] = 0
+    count_df = monthly_count.reset_index()
+    count_df["Month_dt"] = pd.to_datetime(count_df["Month"], format="%Y-%m", errors="coerce")
+    count_df = count_df.dropna(subset=["Month_dt"]).sort_values("Month_dt")
+
+    if view_option == "Revenue (CAD)":
+        base_df = rev_df.copy()
+        y_label = "Revenue (CAD)"
+        name_owned = "Owned Revenue"
+        name_cons = "Consigned Revenue"
+    else:
+        base_df = count_df.copy()
+        y_label = "Sales Count"
+        name_owned = "Owned Sales Count"
+        name_cons = "Consigned Sales Count"
+
+    # Forecast (3M MA)
+    if len(base_df) >= 3:
+        last_month = base_df["Month_dt"].max()
+        next_month = last_month + pd.DateOffset(months=1)
+
+        owned_series = base_df["Owned"].astype(float)
+        owned_hist_ma = owned_series.rolling(window=3, min_periods=3).mean()
+        owned_next = float(owned_series.tail(3).mean())
+
+        cons_series = base_df["Consigned"].astype(float)
+        cons_hist_ma = cons_series.rolling(window=3, min_periods=3).mean()
+        cons_next = float(cons_series.tail(3).mean())
+
+        x_forecast = pd.concat([base_df["Month_dt"], pd.Series([next_month])], ignore_index=True)
+        y_owned_forecast = pd.concat([owned_hist_ma, pd.Series([owned_next])], ignore_index=True)
+        y_cons_forecast = pd.concat([cons_hist_ma, pd.Series([cons_next])], ignore_index=True)
+    else:
+        x_forecast = base_df["Month_dt"]
+        y_owned_forecast = pd.Series([None] * len(base_df))
+        y_cons_forecast = pd.Series([None] * len(base_df))
+
+    fig_line = go.Figure()
+    fig_line.add_trace(go.Scatter(x=base_df["Month_dt"], y=base_df["Owned"], mode="lines+markers", name=name_owned))
+    fig_line.add_trace(go.Scatter(x=base_df["Month_dt"], y=base_df["Consigned"], mode="lines+markers", name=name_cons))
+    fig_line.add_trace(go.Scatter(x=x_forecast, y=y_owned_forecast, mode="lines+markers", name=f"{name_owned} – Forecast (3M MA)", line=dict(dash="dash")))
+    fig_line.add_trace(go.Scatter(x=x_forecast, y=y_cons_forecast, mode="lines+markers", name=f"{name_cons} – Forecast (3M MA)", line=dict(dash="dash")))
+
+    fig_line.update_layout(
+        xaxis_title="Month",
+        yaxis_title=y_label,
+        legend_title="Ownership / Forecast",
+        height=450
+    )
+
+    col_fc1, col_fc2 = st.columns([2, 1])
+    with col_fc1:
+        st.plotly_chart(fig_line, use_container_width=True)
+
+    with col_fc2:
+        st.markdown("#### Forecasted Units by Product Type, Grade & Ownership (Next Month)")
+
+        if view_option != "Sales Count":
+            st.info("Switch to 'Sales Count' to see units forecast by Product Type, Grade & Ownership.")
+        else:
+            if "Product Type" not in df.columns:
+                st.info("No Product Type column available.")
+            else:
+                product_types = sorted(df["Product Type"].dropna().unique().tolist())
+                if not product_types:
+                    st.write("No product type data available.")
+                else:
+                    selected_pt = st.selectbox("Select Product Type:", product_types, key=wkey("pt_select"))
+
+                    df_pt = df[df["Product Type"] == selected_pt].copy()
+
+                    monthly_pt_own_grade = (
+                        df_pt.groupby(["Month", "Ownership", "Grade"])["Sale ID"]
+                             .count()
+                             .reset_index(name="Sales_Count")
+                    )
+
+                    if monthly_pt_own_grade.empty or monthly_pt_own_grade["Month"].nunique() < 3:
+                        st.write("Not enough data (≥ 3 months) to compute a 3-month forecast for this product type.")
+                    else:
+                        monthly_pt_own_grade["Month_dt"] = pd.to_datetime(monthly_pt_own_grade["Month"], format="%Y-%m", errors="coerce")
+                        monthly_pt_own_grade = monthly_pt_own_grade.dropna(subset=["Month_dt"]).sort_values("Month_dt")
+
+                        unique_months = monthly_pt_own_grade["Month_dt"].drop_duplicates().sort_values()
+                        last3_months = unique_months.tail(3)
+
+                        last3 = monthly_pt_own_grade[monthly_pt_own_grade["Month_dt"].isin(last3_months)]
+                        forecast_by_own_grade = (
+                            last3.groupby(["Ownership", "Grade"])["Sales_Count"]
+                                 .mean()
+                                 .reset_index(name="Forecast_Units")
+                        )
+                        forecast_by_own_grade["Forecast_Units"] = forecast_by_own_grade["Forecast_Units"].round().astype(int)
+
+                        totals_by_own = (
+                            forecast_by_own_grade.groupby("Ownership")["Forecast_Units"]
+                                                 .sum()
+                                                 .reset_index(name="Total_Units")
+                        )
+                        total_all = int(forecast_by_own_grade["Forecast_Units"].sum())
+
+                        st.markdown("**Total forecasted units (next month) by Ownership**")
+                        st.dataframe(totals_by_own, hide_index=True, use_container_width=True)
+                        st.metric("Total forecasted units (next month – all ownerships)", total_all)
+
+                        ownership_options = totals_by_own["Ownership"].tolist()
+                        if ownership_options:
+                            selected_own = st.radio("Show grade detail for:", ownership_options, horizontal=True, key=wkey("own_detail"))
+                            detail_filtered = forecast_by_own_grade[forecast_by_own_grade["Ownership"] == selected_own]
+                            st.markdown(f"**Detail by Grade – {selected_own}**")
+                            st.dataframe(detail_filtered[["Grade", "Forecast_Units"]], hide_index=True, use_container_width=True)
+
+        with st.expander("Insights: Forecast model (Next Month)", expanded=False):
+            st.markdown(
+                "- The forecast is a **3-month moving average (3MMA)** computed on **Sales Count** (units).\n"
+                "- For each **Ownership × Grade** segment: **Forecast(next month) = mean(units in last 3 months)**.\n"
+                "- Requires **≥ 3 distinct months** for the selected Product Type."
+            )
+
+    st.markdown("---")
+    st.subheader("Commercial ROI and Monthly Mean Ticket by Ownership")
+
+    df_roi = df.copy()
+    df_roi = df_roi.dropna(subset=["Ownership", "Price (CAD)", "Sale ID"])
+    if df_roi.empty:
+        st.info("No data available to compute commercial ROI.")
+        return
+
+    roi_base = (
+        df_roi.groupby("Ownership", as_index=False)
+              .agg(Sales=("Sale ID", "count"), Revenue_CAD=("Price (CAD)", "sum"))
+    )
+    roi_base["Revenue_per_Sale"] = roi_base["Revenue_CAD"] / roi_base["Sales"]
+    roi_base["Revenue_CAD"] = roi_base["Revenue_CAD"].round(2)
+    roi_base["Revenue_per_Sale"] = roi_base["Revenue_per_Sale"].round(2)
+
+    mean_ticket_monthly = (
+        df.groupby(["Month", "Ownership"])["Price (CAD)"]
+          .mean()
+          .reset_index(name="Mean_Ticket_CAD")
+    )
+    mean_ticket_monthly["Month_dt"] = pd.to_datetime(mean_ticket_monthly["Month"], format="%Y-%m", errors="coerce")
+    mean_ticket_monthly = mean_ticket_monthly.dropna(subset=["Month_dt"]).sort_values("Month_dt")
+
+    col_roi, col_mean = st.columns(2)
+    with col_roi:
+        fig_roi = px.bar(
+            roi_base,
+            x="Revenue_per_Sale",
+            y="Ownership",
+            orientation="h",
+            text="Revenue_per_Sale",
+            labels={"Revenue_per_Sale": "Commercial ROI (Revenue per Sale, CAD)", "Ownership": "Ownership"},
+            title="Commercial ROI by Ownership",
+        )
+        fig_roi.update_traces(texttemplate="$%{text:,.2f}", textposition="outside")
+        fig_roi.update_layout(xaxis_title="Revenue per Sale (CAD)", yaxis_title="Ownership", height=450)
+        st.plotly_chart(fig_roi, use_container_width=True)
+
+    with col_mean:
+        fig_mean_ticket_month = px.bar(
+            mean_ticket_monthly,
+            x="Month_dt",
+            y="Mean_Ticket_CAD",
+            color="Ownership",
+            barmode="group",
+            labels={"Month_dt": "Month", "Mean_Ticket_CAD": "Mean Ticket (CAD)", "Ownership": "Ownership"},
+            title="Monthly Mean Ticket by Ownership",
+        )
+        fig_mean_ticket_month.update_layout(xaxis_tickformat="%Y-%m")
+        st.plotly_chart(fig_mean_ticket_month, use_container_width=True)
+
+    st.markdown("#### Summary (Commercial ROI vs Volume)")
+    with st.expander("What is Commercial ROI and how is it calculated?", expanded=False):
+        st.markdown(
+            "- **Commercial ROI (in this dashboard)** is a *sales-efficiency proxy*, not an accounting ROI.\n"
+            "- We define it as **Revenue per Sale**: **Total Revenue (CAD) / Number of Sales**.\n"
+            "- It compares **ticket power** vs **volume**, but does not include costs, margins, or inventory investment."
+        )
+
+    st.dataframe(roi_base[["Ownership", "Sales", "Revenue_CAD", "Revenue_per_Sale"]], use_container_width=True)
+    if len(roi_base) >= 2:
+        best = roi_base.loc[roi_base["Revenue_per_Sale"].idxmax()]
+        worst = roi_base.loc[roi_base["Revenue_per_Sale"].idxmin()]
+        if float(worst["Revenue_per_Sale"]) > 0:
+            ratio = float(best["Revenue_per_Sale"]) / float(worst["Revenue_per_Sale"])
+            st.markdown(
+                f"**Interpretation:** On average, each `{best['Ownership']}` sale generates "
+                f"**{ratio:,.1f}×** more revenue than each `{worst['Ownership']}` sale."
+            )
+        else:
+            st.markdown(
+                f"**Interpretation:** `{best['Ownership']}` shows the highest commercial ROI "
+                f"(revenue per sale). `{worst['Ownership']}` has very low or zero ROI."
+            )
+
+    
+    # Product profiles
+    st.markdown("---")
+    col_prof1, col_prof2 = st.columns(2)
+
+    group_cols = ["Product Type", "Species", "Grade", "Finish", "Dominant Color", "Color Count (#)"]
+
+    df_combo = df.dropna(subset=["Product Type"]).copy()
+    for c in group_cols:
+        if c not in df_combo.columns:
+            df_combo[c] = "N/A"
+        df_combo[c] = df_combo[c].fillna("N/A")
+
+    with col_prof1:
+        st.markdown("#### Top Product Profile by Mean Ticket per Ownership")
+
+        if df_combo.empty:
+            st.info("No product data available to compute top product profiles.")
+        else:
+            group_cols_own = ["Ownership"] + group_cols
+            hv_agg_own = (
+                df_combo.groupby(group_cols_own)["Price (CAD)"]
+                        .agg(Mean_Ticket_CAD="mean", Sales_Count="count")
+                        .reset_index()
+            )
+
+            ownership_order = ["Owned", "Consigned"]
+            available_owns = [o for o in ownership_order if o in hv_agg_own["Ownership"].unique().tolist()]
+            if not available_owns:
+                available_owns = sorted(hv_agg_own["Ownership"].dropna().unique().tolist())
+
+            if not available_owns:
+                st.info("No ownership data available to compute profiles.")
+            else:
+                for own_label in available_owns:
+                    subset = hv_agg_own[hv_agg_own["Ownership"] == own_label]
+                    if subset.empty:
+                        continue
+
+                    idx = subset["Mean_Ticket_CAD"].idxmax()
+                    row = subset.loc[idx]
+
+                    parts = []
+                    for c in group_cols:
+                        v = row[c]
+                        if c == "Color Count (#)":
+                            try:
+                                v = int(v)
+                            except Exception:
+                                pass
+                        parts.append(str(v))
+
+                    combo_label = " – ".join(parts)
+                    mean_val = float(row["Mean_Ticket_CAD"])
+                    sales_n = int(row["Sales_Count"])
+
+                    st.metric(
+                        label=f"{own_label} – Top Mean Ticket",
+                        value=f"${mean_val:,.2f}",
+                        delta=f"{combo_label} | Total sales: {sales_n}"
+                    )
+
+    with col_prof2:
+        st.markdown("#### Most Frequent Product Profile by Ownership")
+
+        if df_combo.empty:
+            st.info("No product data available to compute frequent product profiles.")
+        else:
+            group_cols_own = ["Ownership"] + group_cols
+            freq_agg = (
+                df_combo.groupby(group_cols_own)["Sale ID"]
+                        .count()
+                        .reset_index(name="Sales_Count")
+            )
+
+            ownership_order = ["Owned", "Consigned"]
+            available_owns = [o for o in ownership_order if o in freq_agg["Ownership"].unique().tolist()]
+            if not available_owns:
+                available_owns = sorted(freq_agg["Ownership"].dropna().unique().tolist())
+
+            for own_label in available_owns:
+                subset = freq_agg[freq_agg["Ownership"] == own_label]
+                if subset.empty:
+                    continue
+
+                row = subset.sort_values("Sales_Count", ascending=False).iloc[0]
+
+                parts = []
+                for c in group_cols:
+                    v = row[c]
+                    if c == "Color Count (#)":
+                        try:
+                            v = int(v)
+                        except Exception:
+                            pass
+                    parts.append(str(v))
+
+                combo_label = " – ".join(parts)
+                sales_n = int(row["Sales_Count"])
+
+                st.metric(
+                    label=f"{own_label} – Most Frequent Profile",
+                    value=f"{sales_n} sales",
+                    delta=combo_label
+                )
+
+    st.markdown("---")
+    st.subheader("Ticket Distribution by Ownership")
+
+    df_eff = df.dropna(subset=["Price (CAD)"]).copy()
+    if df_eff.empty:
+        st.info("No data available to plot ticket distribution.")
+    else:
+        fig_violin = px.violin(
+            df_eff,
+            x="Ownership",
+            y="Price (CAD)",
+            box=True,
+            points="all",
+            labels={"Ownership": "Ownership", "Price (CAD)": "Ticket (Price per Sale, CAD)"},
+            title="Distribution of Ticket per Ownership (Price per Sale)",
+        )
+        fig_violin.update_layout(height=500)
+        st.plotly_chart(fig_violin, use_container_width=True)
+
+        with st.expander("How to read this violin plot (terms)", expanded=False):
+            st.markdown(
+                "- **Violin width** indicates where values are more frequent (higher density).\n"
+                "- **Median** is the 50th percentile.\n"
+                "- **Q1/Q3** are the 25th/75th percentiles (IQR = Q3 − Q1).\n"
+                "- **Upper/Lower fence**: Q3 + 1.5×IQR / Q1 − 1.5×IQR; points beyond are **outliers**."
+            )
+
+    st.markdown("---")
+    st.subheader("Month-over-Month % Change by Product Type & Ownership")
+
+    metric_choice_pt = st.radio("Metric:", ["Sales Count", "Revenue (CAD)"], horizontal=True, key=wkey("pt_own_mom_metric"))
+
+    df_mom_pt = df.dropna(subset=["Product Type"]).copy()
+    if df_mom_pt["Month"].nunique() < 2:
+        st.info("Not enough monthly data to compute month-over-month change.")
+        return
+
+    if metric_choice_pt == "Sales Count":
+        agg = (
+            df_mom_pt.groupby(["Product Type", "Ownership", "Month"])["Sale ID"]
+                     .count()
+                     .reset_index(name="Metric_Value")
+        )
+    else:
+        agg = (
+            df_mom_pt.groupby(["Product Type", "Ownership", "Month"])["Price (CAD)"]
+                     .sum()
+                     .reset_index(name="Metric_Value")
+        )
+
+    if agg.empty:
+        st.info("No data available for the selected metric.")
+        return
+
+    pivot = (
+        agg.pivot_table(index=["Product Type", "Ownership"], columns="Month", values="Metric_Value", aggfunc="sum")
+           .fillna(0)
+    )
+    pivot = pivot.reindex(sorted(pivot.columns, key=lambda x: pd.to_datetime(x, format="%Y-%m", errors="coerce")), axis=1)
+
+    pct = pivot.pct_change(axis=1) * 100
+    pct = pct.replace([np.inf, -np.inf], np.nan)
+    pct_clean = pct.round(1).dropna(axis=1, how="all")
+
+    avg_growth = pct_clean.mean(axis=1, skipna=True)
+    avg_growth_df = avg_growth.reset_index()
+    avg_growth_df.columns = ["Product Type", "Ownership", "Avg_MoM_Growth"]
+
+    kpi_col1, kpi_col2 = st.columns(2)
+
+    with kpi_col1:
+        sub_owned = avg_growth_df[avg_growth_df["Ownership"] == "Owned"]
+        if not sub_owned.empty:
+            best_owned = sub_owned.loc[sub_owned["Avg_MoM_Growth"].idxmax()]
+            worst_owned = sub_owned.loc[sub_owned["Avg_MoM_Growth"].idxmin()]
+            st.markdown("#### Owned – Long-Term Performance")
+            st.metric(label=f"Best Avg MoM ({metric_choice_pt})", value=f"{best_owned['Avg_MoM_Growth']:+.2f}%", delta=f"{best_owned['Product Type']}")
+            st.metric(label=f"Worst Avg MoM ({metric_choice_pt})", value=f"{worst_owned['Avg_MoM_Growth']:+.2f}%", delta=f"{worst_owned['Product Type']}")
+
+    with kpi_col2:
+        sub_con = avg_growth_df[avg_growth_df["Ownership"] == "Consigned"]
+        if not sub_con.empty:
+            best_con = sub_con.loc[sub_con["Avg_MoM_Growth"].idxmax()]
+            worst_con = sub_con.loc[sub_con["Avg_MoM_Growth"].idxmin()]
+            st.markdown("#### Consigned – Long-Term Performance")
+            st.metric(label=f"Best Avg MoM ({metric_choice_pt})", value=f"{best_con['Avg_MoM_Growth']:+.2f}%", delta=f"{best_con['Product Type']}")
+            st.metric(label=f"Worst Avg MoM ({metric_choice_pt})", value=f"{worst_con['Avg_MoM_Growth']:+.2f}%", delta=f"{worst_con['Product Type']}")
+
+    st.markdown("Each cell shows the **% change vs previous month** for that Product Type & Ownership.")
+    st.dataframe(pct_clean.style.format(lambda v: "—" if pd.isna(v) else f"{v:+.1f}%"), use_container_width=True)
+
+    export_df = pct_clean.reset_index()
+    csv_bytes = export_df.to_csv(index=False).encode("utf-8")
+
+    st.download_button(
+        label="Download MoM % change table as CSV",
+        data=csv_bytes,
+        file_name=f"mom_pct_change_{metric_choice_pt.replace(' ', '_').lower()}.csv",
+        mime="text/csv",
+    )
+
+with tab_ownership:
+    # Integrated from sales_analysis.py: Ownership Analysis logic
+    render_ownership_analysis_tab(f)
+
+# ============================
+# End of TAB 7: OWNERSHIP
+# ============================
 # -----------------------------
 # TAB: Seasonality (upgrade)
 # -----------------------------
