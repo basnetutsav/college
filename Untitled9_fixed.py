@@ -1294,7 +1294,7 @@ with tab_price:
 # ======================
 # TAB: PRODUCT MIX
 # ======================
-with tabs[PRODUCT_MIX_INDEX]:   # <-- change PRODUCT_MIX_INDEX to your Product Mix tab index
+with st.container():
     st.header("🧩 Product Mix")
 
     # Use filtered df if you have it (common in your app), otherwise use df
