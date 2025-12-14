@@ -2179,9 +2179,6 @@ with tabs[4]:
         insights_expander("Data", insights_md, why_md, recs_md)
         st.divider()
 # -----------------------------
-# TAB: Inventory Timing (Seasonality-style: 5 subtabs)
-# -----------------------------
-# -----------------------------
 # TAB: Inventory Timing (separate tab)
 # -----------------------------
 with tab_timing:
@@ -2377,7 +2374,7 @@ with tab_ownership:
 # -----------------------------
 # TAB: Seasonality (upgrade)
 # -----------------------------
-with tab_timing:
+with tab_seasonality:
     st.subheader("Inventory Timing")
     st.markdown("## Seasonality Analysis")
     st.caption("Visualization")
