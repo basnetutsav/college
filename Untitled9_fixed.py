@@ -595,40 +595,36 @@ else:
     prev_cons_share = prev_avg_ship = np.nan
 
 k1, k2, k3, k4, k5, k6 = st.columns(6)
-
-
-with k1:
-    st.metric("Total Revenue", fmt_money(cur_total_revenue))
     
-with k2:
+with k1:
     st.metric(
         "Total Net Sales",
         fmt_money(cur_total_net),
         delta=(None if not np.isfinite(prev_total_net) else fmt_money(cur_total_net - prev_total_net)),
     )
 
-with k3:
+with k2:
     st.metric(
         "Total Orders",
         fmt_int(cur_orders),
         delta=(None if not np.isfinite(prev_orders) else f"{int(cur_orders - prev_orders):,}"),
     )
 
-with k4:
+with k3:
     st.metric(
         "Unique Customers",
         fmt_int(cur_unique),
         delta=(None if not np.isfinite(prev_unique) else f"{int(cur_unique - prev_unique):,}"),
     )
 
-with k5:
+with k4:
     st.metric(
         "Consigned Share",
         f"{cur_cons_share*100:,.1f}%",
         delta=(None if not np.isfinite(prev_cons_share) else f"{(cur_cons_share - prev_cons_share)*100:,.1f}%"),
     )
 
-with k6:
+with k5:
     if np.isfinite(cur_avg_ship):
         st.metric(
             "Avg Days to Ship",
