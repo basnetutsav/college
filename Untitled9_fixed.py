@@ -610,13 +610,6 @@ with k1:
             delta=(None if not np.isfinite(prev_total_metric) else fmt_money(cur_total_metric - prev_total_metric)),
         )
 
-with k2:
-    st.metric(
-        "Total Net Sales",
-        fmt_money(cur_total_net),
-        delta=(None if not np.isfinite(prev_total_net) else fmt_money(cur_total_net - prev_total_net)),
-    )
-
 with k3:
     st.metric(
         "Total Orders",
