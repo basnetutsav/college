@@ -462,20 +462,20 @@ uploaded = st.sidebar.file_uploader(
 )
 
 df = load_data(uploaded_file=uploaded)
+# Make sure Sale Date is datetime
+df["Sale Date"] = pd.to_datetime(df["Sale Date"], errors="coerce")
 
-min_date = df["Date"].min()
-max_date = df["Date"].max()
-if pd.isna(min_date) or pd.isna(max_date):
-    st.error("❌ 'Date' column has no valid dates.")
-    st.stop()
+min_d = df["Sale Date"].min().date()
+max_d = df["Sale Date"].max().date()
 
-date_range = st.sidebar.date_input(
+cur_start, cur_end = st.slider(
     "Sale Date range",
-    value=(min_date.date(), max_date.date()),
-    min_value=min_date.date(),
-    max_value=max_date.date(),
-    key="date_range",
+    min_value=min_d,
+    max_value=max_d,
+    value=(min_d, max_d),   # default full range
+    format="YYYY/MM/DD",
 )
+
 
 # Core filters
 country_options = sorted(df["Country"].dropna().unique())
