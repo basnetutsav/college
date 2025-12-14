@@ -597,18 +597,11 @@ else:
 k1, k2, k3, k4, k5, k6 = st.columns(6)
 
 with k1:
-    if metric_col == "OrderCount":
-        st.metric(
-            metric_label,
-            fmt_int(cur_total_metric),
-            delta=(None if not np.isfinite(prev_total_metric) else f"{int(cur_total_metric - prev_total_metric):,}"),
-        )
-    else:
-        st.metric(
-            metric_label,
-            fmt_money(cur_total_metric),
-            delta=(None if not np.isfinite(prev_total_metric) else fmt_money(cur_total_metric - prev_total_metric)),
-        )
+    st.metric(
+        "Total Net Sales",
+        fmt_money(cur_total_net),
+        delta=(None if not np.isfinite(prev_total_net) else fmt_money(cur_total_net - prev_total_net)),
+    )
 
 with k2:
     st.metric(
