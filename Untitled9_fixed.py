@@ -597,11 +597,8 @@ else:
 k1, k2, k3, k4, k5, k6 = st.columns(6)
 
 with k1:
-    st.metric(
-        "Total Net Sales",
-        fmt_money(cur_total_net),
-        delta=(None if not np.isfinite(prev_total_net) else fmt_money(cur_total_net)),
-    )
+    st.metric("Total Net Sales", fmt_money(cur_total_net))
+
 
 with k2:
     st.metric(
